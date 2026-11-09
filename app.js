@@ -8,15 +8,32 @@ const PUBLIC_KEY = {
   x: 'kHkzCWyGjuxGxGf_3AMH2F_MKEWEjH1hfCnBf7K1Imo',
   y: 'Fv556fMFzralLJTUqYxNxI68b9Fd4ctkLzgn07BzKj0'
 };
-const APP_VERSION = '2.3';
+const APP_VERSION = '2.4';
 
 const TYPES = {
   ma: { label: 'Mitarbeit', long: 'Mitarbeit', icon: 'spark', vals: [['+', '+', 'g'], ['~', '~', 'm'], ['-', '−', 'b']] },
   mu: { label: 'Mündlich', long: 'Mündliche Wiederholung', icon: 'speech', vals: grades() },
   sw: { label: 'Schriftlich', long: 'Schriftliche Wiederholung', icon: 'pen', vals: grades() },
   hu: { label: 'Hausübung', long: 'Hausübung', icon: 'book', vals: [['y', '✓', 'g'], ['n', '✗', 'b']] },
-  vh: { label: 'Verhalten', long: 'Verhalten', icon: 'smile', multi: true, vals: [['p', '+', 'g'], ['n', '−', 'b']] }
+  vh: { label: 'Verhalten', long: 'Verhalten', icon: 'smile', multi: true, vals: [['pp', 'sehr gut', 'g'], ['p', 'gut', 'g'], ['n', 'weniger gut', 'm'], ['nn', 'schlecht', 'b']] }
 };
+// Vier Smiley-Stufen für Verhalten
+const VH_LEVELS = ['pp', 'p', 'n', 'nn'];
+const VH_NUM = { pp: 1, p: 2, n: 4, nn: 5 };
+const FACE = {
+  pp: '<path d="M7.6 13.2h8.8a4.4 4.4 0 0 1-8.8 0z" fill="currentColor" stroke-width="1.6"/><path d="M8.3 9.8q1.2-1.6 2.4 0M13.3 9.8q1.2-1.6 2.4 0"/>',
+  p: '<path d="M8.4 13.8a4.3 4.3 0 0 0 7.2 0"/><path d="M9.3 9.6h.01M14.7 9.6h.01" stroke-width="2.8"/>',
+  n: '<path d="M8.8 15.4h6.4"/><path d="M9.3 9.6h.01M14.7 9.6h.01" stroke-width="2.8"/>',
+  nn: '<path d="M8.4 16.4a4.3 4.3 0 0 1 7.2 0"/><path d="M8.2 8.4l2.4 1.2M15.8 8.4l-2.4 1.2"/><path d="M9.4 11.1h.01M14.6 11.1h.01" stroke-width="2.6"/>'
+};
+const face = (v, size = 24) => `<svg class="sym" viewBox="0 0 24 24" width="${size}" height="${size}" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/>${FACE[v] || FACE.p}</svg>`;
+const vhLabel = v => (TYPES.vh.vals.find(x => x[0] === v) || ['', v])[1];
+const vhCls = v => (TYPES.vh.vals.find(x => x[0] === v) || ['', '', 'm'])[2];
+const vhPol = v => v === 'pp' || v === 'p' ? 'p' : 'n';
+function vhCounts(list) {
+  const items = VH_LEVELS.filter(v => list[v]).map(v => `<span class="vhc ${vhCls(v)}">${face(v, 15)}${list[v]}</span>`);
+  return items.length ? `<span class="vhrow">${items.join('')}</span>` : '';
+}
 const VH_TAGS = {
   p: ['Hilfsbereit', 'Engagiert', 'Konzentriert', 'Rücksichtsvoll', 'Selbstständig', 'Gute Teamarbeit'],
   n: ['Stört den Unterricht', 'Unaufmerksam', 'Material vergessen', 'Zu spät', 'Handy', 'Respektlos']
@@ -298,29 +315,29 @@ function rowHTML(c, s) {
   const todays = data.entries.filter(e => e.c === c.id && e.s === s.id && e.d === ui.date && e.t === ui.type);
   let meta = '', btns;
   if (t.multi) {
-    const p = todays.filter(e => e.v === 'p').length, n = todays.filter(e => e.v === 'n').length;
-    meta = (p ? `<span class="tagmini g">+${p}</span>` : '') + (n ? `<span class="tagmini b">−${n}</span>` : '');
+    const cnt = {}; todays.forEach(e => { cnt[e.v] = (cnt[e.v] || 0) + 1; });
+    meta = vhCounts(cnt);
     btns = t.vals.map(([v, label, cls]) =>
-      `<button class="v add ${cls}" data-a="mark" data-s="${s.id}" data-v="${v}" aria-label="${esc(t.label + ' ' + (v === 'p' ? 'positiv' : 'negativ'))}">${glyph(label)}</button>`).join('');
+      `<button class="v add face ${cls}" data-a="mark" data-s="${s.id}" data-v="${v}" aria-label="${esc('Verhalten ' + label)}">${face(v, 25)}</button>`).join('');
   } else {
     const cur = todays[0];
     const curV = cur ? (scaleOf(c, ui.type) === 'pm' ? toPm(cur.v) : ({ '+': '1', '~': '3', '-': '5' }[cur.v] || cur.v)) : null;
     btns = valsFor(c, ui.type).map(([v, label, cls]) =>
       `<button class="v ${cls} ${curV === v ? 'on' : ''}" data-a="mark" data-s="${s.id}" data-v="${v}" aria-label="${esc(t.label + ' ' + label)}">${glyph(label)}</button>`).join('');
   }
-  return `<div class="srow${!t.multi && valsFor(c, ui.type).length > 3 ? ' five' : ''}" data-row="${s.id}">
+  return `<div class="srow${t.multi || valsFor(c, ui.type).length > 3 ? ' five' : ''}" data-row="${s.id}">
     <a class="sname-wrap" href="#/s/${c.id}/${s.id}"><span class="sname">${esc(s.name)}</span>${meta ? `<span class="smeta">${meta}</span>` : ''}</a>
     <div class="vals">${btns}</div></div>`;
 }
 
 function stats(c, sid) {
-  const st = { n: 0, avg: {}, cnt: {}, list: {}, hu: { y: 0, n: 0 }, vh: { p: 0, n: 0 }, total: null };
+  const st = { n: 0, avg: {}, cnt: {}, list: {}, hu: { y: 0, n: 0 }, vh: { pp: 0, p: 0, n: 0, nn: 0 }, total: null };
   const acc = {};
   for (const k of Object.keys(TYPES)) { acc[k] = { s: 0, w: 0 }; st.cnt[k] = { '+': 0, '~': 0, '-': 0 }; st.list[k] = []; }
   for (const e of entriesOf(c.id, sid)) {
     if (!acc[e.t]) continue;
     st.n++;
-    const w = e.w || 1, num = NUM[e.v];
+    const w = e.w || 1, num = e.t === 'vh' ? VH_NUM[e.v] : NUM[e.v];
     if (num != null) { acc[e.t].s += num * w; acc[e.t].w += w; }
     if (e.t === 'hu' || e.t === 'vh') st[e.t][e.v] = (st[e.t][e.v] || 0) + 1;
     else {
@@ -343,7 +360,7 @@ const dash = '<span class="chev">–</span>';
 
 function metricHTML(c, st, k) {
   if (k === 'hu') { const T = st.hu.y + st.hu.n; return T ? `${st.hu.y}/${T}` : dash; }
-  if (k === 'vh') return `<span class="g-t">+${st.vh.p}</span><span class="b-t">−${st.vh.n}</span>`;
+  if (k === 'vh') return vhCounts(st.vh) || dash;
   if (scaleOf(c, k) === 'pm') { const x = st.cnt[k]; return `<span class="g-t">+${x['+']}</span><span class="m-t">~${x['~']}</span><span class="b-t">−${x['-']}</span>`; }
   return st.avg[k] == null ? dash : `<span class="${gradeCls(st.avg[k])}">${fmtNum(st.avg[k])}</span>`;
 }
@@ -386,7 +403,7 @@ function viewRating(c) {
     <div class="section">Anteil an der Gesamtnote</div>
     <div class="card">${wRows}</div>
     <p class="fine">${sumLine}</p>
-    <p class="fine">Umrechnung: + = 1, ~ = 3, − = 5 · Hausübung gebracht = 1, nicht gebracht = 5 · Verhalten + = 1, − = 5.<br>Einzelne Noten kannst du bei der jeweiligen Schülerin oder dem jeweiligen Schüler stärker oder schwächer zählen lassen: einfach auf die Note tippen.</p>
+    <p class="fine">Umrechnung: + = 1, ~ = 3, − = 5 · Hausübung gebracht = 1, nicht gebracht = 5 · Verhalten: sehr gut = 1, gut = 2, weniger gut = 4, schlecht = 5.<br>Einzelne Noten kannst du bei der jeweiligen Schülerin oder dem jeweiligen Schüler stärker oder schwächer zählen lassen: einfach auf die Note tippen.</p>
     ${data.classes.length > 1 ? `<button class="btn secondary block" data-a="cfgAll">Für alle Klassen übernehmen</button>` : ''}`;
 }
 
@@ -404,7 +421,7 @@ function viewStudent(c, sid) {
       val = T ? `${st.hu.y}/${T}` : '–';
       sub = st.hu.n ? `${st.hu.n}× nicht gebracht` : T ? 'immer gebracht' : 'noch keine';
     } else if (k === 'vh') {
-      val = `<span class="g-t">+${st.vh.p}</span><span class="b-t">−${st.vh.n}</span>`;
+      val = vhCounts(st.vh) || '–';
       sub = lastVh ? 'zuletzt ' + relDay(lastVh.d) : 'noch nichts notiert';
     } else if (sc === 'pm') {
       const x = st.cnt[k];
@@ -434,8 +451,8 @@ function viewStudent(c, sid) {
       list += `<div class="dayh">${esc(dayWord(d) === 'Heute' ? 'Heute' : fmtDayHead(d))}</div><div class="card">${items.map(e => {
         const [, label, cls] = valInfo(e.t, e.v);
         const t = TYPES[e.t] || { long: e.t, icon: 'info' };
-        const title = e.t === 'vh' ? (e.v === 'p' ? 'Positives Verhalten' : 'Negatives Verhalten') : t.long;
-        return `<div class="erow"><span class="eicon ${cls}">${ICON[e.t === 'vh' && e.v === 'n' ? 'frown' : t.icon]}</span>
+        const title = e.t === 'vh' ? 'Verhalten: ' + vhLabel(e.v) : t.long;
+        return `<div class="erow"><span class="eicon ${e.t === 'vh' ? vhCls(e.v) : cls}">${e.t === 'vh' ? face(e.v, 22) : ICON[t.icon]}</span>
           <div class="etext"><div class="etitle">${esc(title)}</div>${e.n ? `<div class="enote">${esc(e.n)}</div>` : ''}</div>
           ${e.t === 'vh' ? '' : `<button class="badge ${cls}" data-a="entryWeight" data-v="${e.id}" aria-label="Gewichtung ändern">${glyph(label)}${e.w && e.w !== 1 ? `<small>×${fmtW(e.w)}</small>` : ''}</button>`}
           <button class="del" data-a="delEntry" data-v="${e.id}" aria-label="Eintrag löschen">${ICON.close}</button></div>`;
@@ -505,24 +522,28 @@ function modal(o) {
 $('#dlg').addEventListener('click', e => { if (e.target === e.currentTarget) e.currentTarget.close(); });
 
 function behaviorSheet(name, start) {
-  let pol = start === 'n' ? 'n' : 'p';
+  let lvl = VH_LEVELS.includes(start) ? start : 'p';
   const sel = new Set();
-  const tagsHTML = () => VH_TAGS[pol].map(t => `<button type="button" class="tag ${sel.has(t) ? 'on ' + (pol === 'p' ? 'g' : 'b') : ''}" data-tag="${esc(t)}">${esc(t)}</button>`).join('');
+  const tagsHTML = () => VH_TAGS[vhPol(lvl)].map(t => `<button type="button" class="tag ${sel.has(t) ? 'on ' + vhCls(lvl) : ''}" data-tag="${esc(t)}">${esc(t)}</button>`).join('');
   return modal({
     title: 'Verhalten', text: name, ok: 'Speichern',
-    body: `<div class="seg pol"><button type="button" data-pol="p">Positiv</button><button type="button" data-pol="n">Negativ</button></div>
+    body: `<div class="faces">${TYPES.vh.vals.map(([v, l, cls]) => `<button type="button" class="facebtn ${cls}" data-lvl="${v}">${face(v, 34)}<span>${l}</span></button>`).join('')}</div>
       <div class="tags"></div>
       <textarea name="note" rows="2" placeholder="Notiz (optional)"></textarea>`,
     mount(d) {
       const paint = () => {
-        d.querySelectorAll('[data-pol]').forEach(b => b.className = b.dataset.pol === pol ? 'on ' + (pol === 'p' ? 'g' : 'b') : '');
+        d.querySelectorAll('[data-lvl]').forEach(b => b.classList.toggle('on', b.dataset.lvl === lvl));
         d.querySelector('.tags').innerHTML = tagsHTML();
       };
-      d.querySelector('.pol').addEventListener('click', e => { const b = e.target.closest('[data-pol]'); if (!b || b.dataset.pol === pol) return; pol = b.dataset.pol; sel.clear(); paint(); });
+      d.querySelector('.faces').addEventListener('click', e => {
+        const b = e.target.closest('[data-lvl]'); if (!b || b.dataset.lvl === lvl) return;
+        if (vhPol(b.dataset.lvl) !== vhPol(lvl)) sel.clear();
+        lvl = b.dataset.lvl; paint();
+      });
       d.querySelector('.tags').addEventListener('click', e => { const b = e.target.closest('[data-tag]'); if (!b) return; const t = b.dataset.tag; sel.has(t) ? sel.delete(t) : sel.add(t); paint(); });
       paint();
     },
-    collect(d) { return { v: pol, n: [...sel, d.querySelector('[name=note]').value.trim()].filter(Boolean).join(' · ') }; }
+    collect(d) { return { v: lvl, n: [...sel, d.querySelector('[name=note]').value.trim()].filter(Boolean).join(' · ') }; }
   });
 }
 
@@ -820,7 +841,7 @@ const actions = {
     if (TYPES[ui.type].multi) {
       const r = await behaviorSheet(s.name, d.v); if (!r) return;
       data.entries.push({ id: uid(), c: c.id, s: s.id, d: ui.date, t: ui.type, v: r.v, n: r.n });
-      toast(r.v === 'p' ? 'Positives Verhalten notiert' : 'Verhalten notiert');
+      toast('Verhalten notiert: ' + vhLabel(r.v));
     } else {
       const i = data.entries.findIndex(e => e.c === c.id && e.s === d.s && e.d === ui.date && e.t === ui.type);
       if (i >= 0 && data.entries[i].v === d.v) data.entries.splice(i, 1);
@@ -890,7 +911,7 @@ const actions = {
   },
   async delEntry(d) {
     const e = data.entries.find(x => x.id === d.v); if (!e) return;
-    const what = e.t === 'vh' ? (e.v === 'p' ? 'Positives Verhalten' : 'Negatives Verhalten') + (e.n ? ': ' + e.n : '')
+    const what = e.t === 'vh' ? 'Verhalten: ' + vhLabel(e.v) + (e.n ? ' – ' + e.n : '')
       : `${TYPES[e.t].long}: ${valInfo(e.t, e.v)[1]}`;
     if (!await modal({ title: 'Eintrag löschen?', text: `${fmtDayLong(e.d)}\n${what}`, ok: 'Löschen', danger: true })) return;
     data.entries = data.entries.filter(x => x !== e); await save(); render();
@@ -900,13 +921,13 @@ const actions = {
     const c = currentClass(); if (!c) return;
     const head = ['Name'];
     for (const k of SCALABLE) head.push(`${TYPES[k].label} Ø`, `${TYPES[k].label} Einträge`);
-    head.push('HÜ gebracht', 'HÜ nicht gebracht', 'Verhalten +', 'Verhalten −', 'Gesamtnote');
+    head.push('HÜ gebracht', 'HÜ nicht gebracht', 'Verhalten sehr gut', 'Verhalten gut', 'Verhalten weniger gut', 'Verhalten schlecht', 'Gesamtnote');
     const rows = [head];
     for (const s of [...c.students].sort(byName)) {
       const st = stats(c, s.id);
       const r = [s.name];
       for (const k of SCALABLE) r.push(st.avg[k] == null ? '' : fmtNum(st.avg[k]), st.list[k].join(' '));
-      r.push(st.hu.y, st.hu.n, st.vh.p, st.vh.n, st.total == null ? '' : fmtNum(st.total));
+      r.push(st.hu.y, st.hu.n, st.vh.pp, st.vh.p, st.vh.n, st.vh.nn, st.total == null ? '' : fmtNum(st.total));
       rows.push(r);
     }
     rows.push([], [`Gewichtung: ${weightSummary(c)}`]);
@@ -918,7 +939,7 @@ const actions = {
     const rows = [['Datum', 'Name', 'Kategorie', 'Wert', 'Gewicht', 'Notiz']];
     entriesOf(c.id).filter(e => names[e.s]).sort((a, b) => a.d.localeCompare(b.d) || names[a.s].localeCompare(names[b.s], 'de'))
       .forEach(e => rows.push([e.d.split('-').reverse().join('.'), names[e.s], (TYPES[e.t] || { long: e.t }).long,
-        e.t === 'hu' ? (e.v === 'y' ? 'gebracht' : 'nicht gebracht') : e.t === 'vh' ? (e.v === 'p' ? 'positiv' : 'negativ') : valInfo(e.t, e.v)[1],
+        e.t === 'hu' ? (e.v === 'y' ? 'gebracht' : 'nicht gebracht') : e.t === 'vh' ? vhLabel(e.v) : valInfo(e.t, e.v)[1],
         e.w ? fmtW(e.w) : '1', e.n || '']));
     saveFile(`Einträge_${safeName(c.name)}_${today()}.csv`, 'text/csv', toCSV(rows));
   },
