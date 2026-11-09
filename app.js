@@ -8,7 +8,7 @@ const PUBLIC_KEY = {
   x: 'kHkzCWyGjuxGxGf_3AMH2F_MKEWEjH1hfCnBf7K1Imo',
   y: 'Fv556fMFzralLJTUqYxNxI68b9Fd4ctkLzgn07BzKj0'
 };
-const APP_VERSION = '2.0';
+const APP_VERSION = '2.1';
 
 const TYPES = {
   ma: { label: 'Mitarbeit', long: 'Mitarbeit', icon: 'spark', vals: [['+', '+', 'g'], ['~', '~', 'm'], ['-', '−', 'b']] },
@@ -23,7 +23,29 @@ const VH_TAGS = {
 };
 function grades() { return [['1', '1', 'g'], ['2', '2', 'g'], ['3', '3', 'm'], ['4', '4', 'm'], ['5', '5', 'b']]; }
 const glyph = l => l === '~' ? '<span class="tl">~</span>' : l;
-const valInfo = (t, v) => (TYPES[t] && TYPES[t].vals.find(x => x[0] === v)) || [v, v, 'm'];
+const valInfo = (t, v) => (SCALABLE.includes(t) ? [...SCALES.grade, ...SCALES.pm] : TYPES[t] ? TYPES[t].vals : []).find(x => x[0] === v) || [v, v, 'm'];
+
+/* ---------- Bewertung: Notenskala & Gewichtung (je Klasse) ---------- */
+const SCALES = { grade: grades(), pm: [['+', '+', 'g'], ['~', '~', 'm'], ['-', '−', 'b']] };
+const SCALABLE = ['ma', 'mu', 'sw'];
+const DEFAULT_CFG = { scale: { ma: 'pm', mu: 'grade', sw: 'grade' }, weight: { ma: 30, mu: 30, sw: 40, hu: 0, vh: 0 } };
+const NUM = { '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '+': 1, '~': 3, '-': 5, y: 1, p: 1, n: 5 };
+const SHORT = { ma: 'Mitarbeit', mu: 'Mündl.', sw: 'Schriftl.', hu: 'HÜ', vh: 'Verhalten' };
+function cfg(c) {
+  if (!c.cfg) c.cfg = JSON.parse(JSON.stringify(DEFAULT_CFG));
+  c.cfg.scale = Object.assign({}, DEFAULT_CFG.scale, c.cfg.scale);
+  c.cfg.weight = Object.assign({}, DEFAULT_CFG.weight, c.cfg.weight);
+  return c.cfg;
+}
+const scaleOf = (c, t) => SCALABLE.includes(t) ? cfg(c).scale[t] : null;
+const valsFor = (c, t) => SCALABLE.includes(t) ? SCALES[cfg(c).scale[t]] : TYPES[t].vals;
+const toPm = v => ({ '1': '+', '2': '+', '3': '~', '4': '-', '5': '-' }[v] || v);
+const fmtW = w => w === 0.5 ? '½' : String(w).replace('.', ',');
+function weightSummary(c) {
+  const w = cfg(c).weight, sum = Object.values(w).reduce((a, b) => a + b, 0);
+  if (!sum) return 'Keine Gewichtung festgelegt';
+  return Object.keys(TYPES).filter(k => w[k] > 0).map(k => `${TYPES[k].label} ${Math.round(w[k] / sum * 100)} %`).join(' · ');
+}
 
 /* ---------- Hilfsfunktionen ---------- */
 const $ = (s, el = document) => el.querySelector(s);
@@ -73,6 +95,7 @@ const ICON = {
   shield: svg('<path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.2-7.5 9.5-4.3-1.3-7.5-4.9-7.5-9.5V6z"/><path d="M9 12l2 2 4-4"/>', 18, 1.9),
   trash: svg('<path d="M4.5 7h15M10 11v6M14 11v6M6 7l1 12.5A1.5 1.5 0 0 0 8.5 21h7a1.5 1.5 0 0 0 1.5-1.5L18 7M9 7V4.5A1.5 1.5 0 0 1 10.5 3h3A1.5 1.5 0 0 1 15 4.5V7"/>', 18, 1.9),
   frown: svg('<circle cx="12" cy="12" r="8.5"/><path d="M8.5 16a4.2 4.2 0 0 1 7 0"/><path d="M9.2 9.6h.01M14.8 9.6h.01" stroke-width="2.6"/>', 18, 1.8),
+  sliders: svg('<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>', 19, 2),
   close: svg('<path d="M7 7l10 10M17 7L7 17"/>', 18, 2),
   info: svg('<circle cx="12" cy="12" r="8.5"/><path d="M12 11v5M12 8h.01" stroke-width="2.4"/>', 18, 1.9)
 };
@@ -175,6 +198,7 @@ function render() {
   if (!license) { key = 'lock'; html = viewLock(); }
   else if (view === 'k' && getClass(a)) { key = 'k' + a; html = viewClass(getClass(a)); }
   else if (view === 's' && getClass(a) && getClass(a).students.find(s => s.id === b)) { key = 's' + b; html = viewStudent(getClass(a), b); }
+  else if (view === 'b' && getClass(a)) { key = 'b' + a; html = viewRating(getClass(a)); }
   else if (view === 'einstellungen') { key = 'set'; html = viewSettings(); }
   else {
     if (location.hash && location.hash !== '#/') history.replaceState(null, '', '#/');
@@ -268,61 +292,122 @@ function rowHTML(c, s) {
       `<button class="v add ${cls}" data-a="mark" data-s="${s.id}" data-v="${v}" aria-label="${esc(t.label + ' ' + (v === 'p' ? 'positiv' : 'negativ'))}">${label}</button>`).join('');
   } else {
     const cur = todays[0];
-    btns = t.vals.map(([v, label, cls]) =>
-      `<button class="v ${cls} ${cur && cur.v === v ? 'on' : ''}" data-a="mark" data-s="${s.id}" data-v="${v}" aria-label="${esc(t.label + ' ' + label)}">${glyph(label)}</button>`).join('');
+    const curV = cur ? (scaleOf(c, ui.type) === 'pm' ? toPm(cur.v) : ({ '+': '1', '~': '3', '-': '5' }[cur.v] || cur.v)) : null;
+    btns = valsFor(c, ui.type).map(([v, label, cls]) =>
+      `<button class="v ${cls} ${curV === v ? 'on' : ''}" data-a="mark" data-s="${s.id}" data-v="${v}" aria-label="${esc(t.label + ' ' + label)}">${glyph(label)}</button>`).join('');
   }
   return `<div class="srow" data-row="${s.id}">
     <a class="sname-wrap" href="#/s/${c.id}/${s.id}"><span class="sname">${esc(s.name)}</span>${meta ? `<span class="smeta">${meta}</span>` : ''}</a>
     <div class="vals">${btns}</div></div>`;
 }
 
-function stats(cid, sid) {
-  const st = { ma: { '+': 0, '~': 0, '-': 0 }, mu: [], sw: [], hu: { y: 0, n: 0 }, vh: { p: 0, n: 0 }, total: 0 };
-  for (const e of entriesOf(cid, sid)) {
-    st.total++;
-    if (e.t === 'ma' || e.t === 'hu' || e.t === 'vh') st[e.t][e.v] = (st[e.t][e.v] || 0) + 1;
-    else if (st[e.t]) st[e.t].push(+e.v);
+function stats(c, sid) {
+  const st = { n: 0, avg: {}, cnt: {}, list: {}, hu: { y: 0, n: 0 }, vh: { p: 0, n: 0 }, total: null };
+  const acc = {};
+  for (const k of Object.keys(TYPES)) { acc[k] = { s: 0, w: 0 }; st.cnt[k] = { '+': 0, '~': 0, '-': 0 }; st.list[k] = []; }
+  for (const e of entriesOf(c.id, sid)) {
+    if (!acc[e.t]) continue;
+    st.n++;
+    const w = e.w || 1, num = NUM[e.v];
+    if (num != null) { acc[e.t].s += num * w; acc[e.t].w += w; }
+    if (e.t === 'hu' || e.t === 'vh') st[e.t][e.v] = (st[e.t][e.v] || 0) + 1;
+    else {
+      st.cnt[e.t][toPm(e.v)]++;
+      const l = valInfo(e.t, e.v)[1];
+      st.list[e.t].push(w === 1 ? l : `${l} (×${fmtW(w)})`);
+    }
   }
-  const avg = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : null;
-  st.muAvg = avg(st.mu); st.swAvg = avg(st.sw);
+  const wt = cfg(c).weight;
+  let S = 0, W = 0;
+  for (const k of Object.keys(TYPES)) {
+    st.avg[k] = acc[k].w ? acc[k].s / acc[k].w : null;
+    if ((wt[k] || 0) > 0 && st.avg[k] != null) { S += wt[k] * st.avg[k]; W += wt[k]; }
+  }
+  st.total = W ? S / W : null;
   return st;
 }
 const gradeCls = g => g == null ? '' : g < 2.5 ? 'g-t' : g < 4.5 ? 'm-t' : 'b-t';
 const dash = '<span class="chev">–</span>';
 
+function metricHTML(c, st, k) {
+  if (k === 'hu') { const T = st.hu.y + st.hu.n; return T ? `${st.hu.y}/${T}` : dash; }
+  if (k === 'vh') return `<span class="g-t">${st.vh.p}</span><span class="b-t">${st.vh.n}</span>`;
+  if (scaleOf(c, k) === 'pm') { const x = st.cnt[k]; return `<span class="g-t">${x['+']}</span><span class="m-t">${x['~']}</span><span class="b-t">${x['-']}</span>`; }
+  return st.avg[k] == null ? dash : `<span class="${gradeCls(st.avg[k])}">${fmtNum(st.avg[k])}</span>`;
+}
+
 function viewOverview(c) {
   const rows = [...c.students].sort(byName).map(s => {
-    const st = stats(c.id, s.id);
-    const huT = st.hu.y + st.hu.n;
+    const st = stats(c, s.id);
     return `<a class="orow" href="#/s/${c.id}/${s.id}">
-      <div class="otop"><span class="av ${avc(s.name)}">${esc(initials(s.name))}</span><span class="oname">${esc(s.name)}</span>${ICON.chev}</div>
-      <div class="metrics">
-        <div class="m"><span class="ml">Mitarbeit</span><span class="mv"><span class="g-t">${st.ma['+']}</span><span class="m-t">${st.ma['~']}</span><span class="b-t">${st.ma['-']}</span></span></div>
-        <div class="m"><span class="ml">Mündl.</span><span class="mv ${gradeCls(st.muAvg)}">${st.muAvg == null ? dash : fmtNum(st.muAvg)}</span></div>
-        <div class="m"><span class="ml">Schriftl.</span><span class="mv ${gradeCls(st.swAvg)}">${st.swAvg == null ? dash : fmtNum(st.swAvg)}</span></div>
-        <div class="m"><span class="ml">HÜ</span><span class="mv">${huT ? `${st.hu.y}/${huT}` : dash}</span></div>
-        <div class="m"><span class="ml">Verhalten</span><span class="mv"><span class="g-t">${st.vh.p}</span><span class="b-t">${st.vh.n}</span></span></div>
-      </div></a>`;
+      <div class="otop"><span class="av ${avc(s.name)}">${esc(initials(s.name))}</span><span class="oname">${esc(s.name)}</span>
+      ${st.total == null ? '' : `<span class="tot ${gradeCls(st.total)}">Ø ${fmtNum(st.total)}</span>`}${ICON.chev}</div>
+      <div class="metrics">${Object.keys(TYPES).map(k => `<div class="m"><span class="ml">${SHORT[k]}</span><span class="mv">${metricHTML(c, st, k)}</span></div>`).join('')}</div></a>`;
   }).join('');
   return `<div class="card">${rows}</div>
-    <p class="legend">Farben: <span class="g-t">positiv</span> · <span class="m-t">neutral</span> · <span class="b-t">negativ</span>. Mündl./Schriftl. zeigen den Notenschnitt der Wiederholungen, HÜ „gebracht / gesamt“.</p>
-    <button class="btn secondary block" data-a="exportOverview">${ICON.download} Übersicht exportieren</button>`;
+    <p class="legend">Ø = gewichtete Gesamtnote (${esc(weightSummary(c))}). Farben: <span class="g-t">positiv</span> · <span class="m-t">neutral</span> · <span class="b-t">negativ</span>. HÜ zeigt „gebracht / gesamt“.</p>
+    <div class="stack">
+      <a class="btn secondary block" href="#/b/${c.id}">${ICON.sliders} Bewertung & Gewichtung</a>
+      <button class="btn secondary block" data-a="exportOverview">${ICON.download} Übersicht exportieren</button>
+    </div>`;
+}
+
+/* ---------- Bewertung (Einstellungen je Klasse) ---------- */
+function viewRating(c) {
+  setHeader({ title: 'Bewertung', back: '#/k/' + c.id, backLabel: c.name });
+  const cf = cfg(c);
+  const sum = Object.values(cf.weight).reduce((a, b) => a + b, 0);
+  const scaleRows = SCALABLE.map(k => `<div class="lrow static"><span class="licon">${ICON[TYPES[k].icon]}</span><span class="grow">${TYPES[k].label}</span>
+      <div class="mini-seg"><button class="${cf.scale[k] === 'grade' ? 'on' : ''}" data-a="setScale" data-t="${k}" data-v="grade">1 – 5</button><button class="${cf.scale[k] === 'pm' ? 'on' : ''}" data-a="setScale" data-t="${k}" data-v="pm">+ ~ −</button></div></div>`).join('');
+  const wRows = Object.keys(TYPES).map(k => {
+    const w = cf.weight[k];
+    return `<div class="lrow static"><span class="licon">${ICON[TYPES[k].icon]}</span><span class="grow">${TYPES[k].label}</span>
+      <div class="stepper"><button data-a="wStep" data-t="${k}" data-v="-5" aria-label="${TYPES[k].label} weniger">−</button><span class="num">${w} %</span><button data-a="wStep" data-t="${k}" data-v="5" aria-label="${TYPES[k].label} mehr">+</button></div></div>`;
+  }).join('');
+  const sumLine = sum === 100 ? '<span class="g-t">Summe: 100 %</span>'
+    : sum === 0 ? 'Alle Anteile stehen auf 0 % – es wird keine Gesamtnote berechnet.'
+      : `Summe: ${sum} % – die Anteile werden automatisch auf 100 % umgerechnet (${esc(weightSummary(c))}).`;
+  return `<div class="hero"><div class="eyebrow">${esc(c.name)}</div><h1>Bewertung</h1></div>
+    <div class="section">Notenskala</div>
+    <div class="card">${scaleRows}</div>
+    <p class="fine">Bewerte mit Noten von 1 bis 5 oder mit + ~ −. Bereits eingetragene Werte bleiben erhalten.</p>
+    <div class="section">Anteil an der Gesamtnote</div>
+    <div class="card">${wRows}</div>
+    <p class="fine">${sumLine}</p>
+    <p class="fine">Umrechnung: + = 1, ~ = 3, − = 5 · Hausübung gebracht = 1, nicht gebracht = 5 · Verhalten + = 1, − = 5.<br>Einzelne Noten kannst du bei der jeweiligen Schülerin oder dem jeweiligen Schüler stärker oder schwächer zählen lassen: einfach auf die Note tippen.</p>
+    ${data.classes.length > 1 ? `<button class="btn secondary block" data-a="cfgAll">Für alle Klassen übernehmen</button>` : ''}`;
 }
 
 /* ---------- Schüler:in ---------- */
 function viewStudent(c, sid) {
   const s = c.students.find(x => x.id === sid);
   setHeader({ title: s.name, back: '#/k/' + c.id, backLabel: c.name, act: { icon: 'more', a: 'studentMenu', label: 'Menü' } });
-  const st = stats(c.id, sid);
-  const huT = st.hu.y + st.hu.n;
+  const st = stats(c, sid);
   const lastVh = entriesOf(c.id, sid).filter(e => e.t === 'vh').sort((a, b) => b.d.localeCompare(a.d))[0];
+  const tile = k => {
+    const sc = scaleOf(c, k), a = st.avg[k];
+    let val, sub;
+    if (k === 'hu') {
+      const T = st.hu.y + st.hu.n;
+      val = T ? `${st.hu.y}/${T}` : '–';
+      sub = st.hu.n ? `${st.hu.n}× nicht gebracht` : T ? 'immer gebracht' : 'noch keine';
+    } else if (k === 'vh') {
+      val = `<span class="g-t">+${st.vh.p}</span><span class="b-t">−${st.vh.n}</span>`;
+      sub = lastVh ? 'zuletzt ' + relDay(lastVh.d) : 'noch nichts notiert';
+    } else if (sc === 'pm') {
+      const x = st.cnt[k];
+      val = `<span class="g-t">+${x['+']}</span><span class="m-t">~${x['~']}</span><span class="b-t">−${x['-']}</span>`;
+      sub = a == null ? 'noch keine' : `entspricht Ø ${fmtNum(a)}`;
+    } else {
+      val = a == null ? '–' : `<span class="${gradeCls(a)}">${fmtNum(a)}</span>`;
+      sub = st.list[k].length ? 'Noten: ' + st.list[k].join(', ') : 'noch keine';
+    }
+    return `<div class="tile"><div class="k">${TYPES[k].label}${sc === 'grade' ? ' Ø' : ''}</div><div class="val">${val}</div><div class="sub">${esc(sub)}</div></div>`;
+  };
   const tiles = `<div class="tiles">
-    <div class="tile"><div class="k">Mitarbeit</div><div class="val"><span class="g-t">+${st.ma['+']}</span><span class="m-t">~${st.ma['~']}</span><span class="b-t">−${st.ma['-']}</span></div></div>
-    <div class="tile"><div class="k">Hausübungen</div><div class="val">${huT ? `${st.hu.y}/${huT}` : '–'}</div><div class="sub">${st.hu.n ? `${st.hu.n}× nicht gebracht` : huT ? 'immer gebracht' : 'noch keine'}</div></div>
-    <div class="tile"><div class="k">Mündlich Ø</div><div class="val ${gradeCls(st.muAvg)}">${st.muAvg == null ? '–' : fmtNum(st.muAvg)}</div><div class="sub">${st.mu.length ? 'Noten: ' + st.mu.join(', ') : 'noch keine'}</div></div>
-    <div class="tile"><div class="k">Schriftlich Ø</div><div class="val ${gradeCls(st.swAvg)}">${st.swAvg == null ? '–' : fmtNum(st.swAvg)}</div><div class="sub">${st.sw.length ? 'Noten: ' + st.sw.join(', ') : 'noch keine'}</div></div>
-    <div class="tile"><div class="k">Verhalten</div><div class="val"><span class="g-t">+${st.vh.p}</span><span class="b-t">−${st.vh.n}</span></div><div class="sub">${lastVh ? 'zuletzt ' + relDay(lastVh.d) : 'noch nichts notiert'}</div></div>
-    <div class="tile"><div class="k">Einträge</div><div class="val">${st.total}</div><div class="sub">insgesamt</div></div>
+    <a class="tile total" href="#/b/${c.id}"><div class="k">Gesamtnote</div><div class="val">${st.total == null ? '–' : fmtNum(st.total)}</div><div class="sub">${esc(weightSummary(c))}</div></a>
+    ${Object.keys(TYPES).map(tile).join('')}
+    <div class="tile"><div class="k">Einträge</div><div class="val">${st.n}</div><div class="sub">insgesamt</div></div>
   </div>`;
   const chips = [['all', 'Alle', null], ...Object.entries(TYPES).map(([k, t]) => [k, t.label, t.icon])].map(([k, l, ic]) =>
     `<button class="cat ${ui.filter === k ? 'on' : ''}" data-a="filter" data-v="${k}">${ic ? ICON[ic] : ''}${l}</button>`).join('');
@@ -340,7 +425,7 @@ function viewStudent(c, sid) {
         const title = e.t === 'vh' ? (e.v === 'p' ? 'Positives Verhalten' : 'Negatives Verhalten') : t.long;
         return `<div class="erow"><span class="eicon ${cls}">${ICON[e.t === 'vh' && e.v === 'n' ? 'frown' : t.icon]}</span>
           <div class="etext"><div class="etitle">${esc(title)}</div>${e.n ? `<div class="enote">${esc(e.n)}</div>` : ''}</div>
-          ${e.t === 'vh' ? '' : `<span class="badge ${cls}">${glyph(label)}</span>`}
+          ${e.t === 'vh' ? '' : `<button class="badge ${cls}" data-a="entryWeight" data-v="${e.id}" aria-label="Gewichtung ändern">${glyph(label)}${e.w && e.w !== 1 ? `<small>×${fmtW(e.w)}</small>` : ''}</button>`}
           <button class="del" data-a="delEntry" data-v="${e.id}" aria-label="Eintrag löschen">${ICON.close}</button></div>`;
       }).join('')}</div>`;
     }
@@ -350,6 +435,7 @@ function viewStudent(c, sid) {
     <button class="btn secondary block" data-a="vhStudent">${ICON.smile} Verhalten notieren</button>
     ${tiles}
     <div class="cats filters">${chips}</div>
+    ${es.some(e => e.t !== 'vh') ? '<p class="fine">Tipp: Tippe auf eine Note, um sie halb, doppelt oder dreifach zählen zu lassen.</p>' : ''}
     ${list}`;
 }
 
@@ -604,7 +690,7 @@ function addNames(c, names) {
 }
 
 /* ---------- Aktionen ---------- */
-const currentClass = () => { const [v, a] = location.hash.replace(/^#\/?/, '').split('/'); return (v === 'k' || v === 's') ? getClass(a) : null; };
+const currentClass = () => { const [v, a] = location.hash.replace(/^#\/?/, '').split('/'); return (v === 'k' || v === 's' || v === 'b') ? getClass(a) : null; };
 const currentStudentId = () => location.hash.replace(/^#\/?/, '').split('/')[2];
 const errMsg = e => e && e.message ? e.message : 'Datei konnte nicht gelesen werden';
 
@@ -627,11 +713,12 @@ const actions = {
     const c = currentClass(); if (!c) return;
     const k = await modal({
       title: c.name, options: [
-        ['add', 'Schüler:innen eintippen'], ['imp', 'Liste importieren (WebUntis, Excel, CSV)'],
+        ['cfg', 'Bewertung & Gewichtung'], ['add', 'Schüler:innen eintippen'], ['imp', 'Liste importieren (WebUntis, Excel, CSV)'],
         ['ov', 'Übersicht exportieren'], ['all', 'Alle Einträge exportieren'],
         ['ren', 'Klasse umbenennen'], ['del', 'Klasse löschen', true]
       ], cancel: 'Schließen'
     });
+    if (k === 'cfg') location.hash = '#/b/' + c.id;
     if (k === 'add') actions.addStudents();
     if (k === 'imp') actions.importStudents();
     if (k === 'ov') actions.exportOverview();
@@ -733,6 +820,31 @@ const actions = {
     haptic();
     await save();
   },
+  async setScale(d) {
+    const c = currentClass(); if (!c) return;
+    cfg(c).scale[d.t] = d.v; await save(); render();
+  },
+  async wStep(d) {
+    const c = currentClass(); if (!c) return;
+    const w = cfg(c).weight;
+    w[d.t] = Math.max(0, Math.min(100, (w[d.t] || 0) + +d.v)); await save(); render();
+  },
+  async cfgAll() {
+    const c = currentClass(); if (!c) return;
+    if (!await modal({ title: 'Für alle Klassen übernehmen?', text: `Notenskala und Gewichtung von „${c.name}“ werden für alle ${data.classes.length} Klassen übernommen.`, ok: 'Übernehmen' })) return;
+    data.classes.forEach(x => { if (x !== c) x.cfg = JSON.parse(JSON.stringify(cfg(c))); });
+    await save(); toast('Für alle Klassen übernommen');
+  },
+  async entryWeight(d) {
+    const e = data.entries.find(x => x.id === d.v); if (!e) return;
+    const cur = String(e.w || 1);
+    const opts = [['0.5', 'Halb (×½)'], ['1', 'Normal (×1)'], ['2', 'Doppelt (×2)'], ['3', 'Dreifach (×3)']]
+      .map(([v, l]) => [v, (v === cur ? '✓  ' : '') + l]);
+    const k = await modal({ title: 'Wie stark soll diese Note zählen?', text: `${TYPES[e.t].long} · ${fmtDayLong(e.d)} · ${valInfo(e.t, e.v)[1]}`, options: opts, cancel: 'Abbrechen' });
+    if (!k) return;
+    if (k === '1') delete e.w; else e.w = +k;
+    await save(); render(); toast(k === '1' ? 'Zählt normal' : `Zählt jetzt ×${fmtW(+k)}`);
+  },
   async vhStudent() {
     const c = currentClass(); const s = c && c.students.find(x => x.id === currentStudentId()); if (!s) return;
     const r = await behaviorSheet(s.name, 'p'); if (!r) return;
@@ -774,23 +886,28 @@ const actions = {
 
   exportOverview() {
     const c = currentClass(); if (!c) return;
-    const rows = [['Name', 'Mitarbeit +', 'Mitarbeit ~', 'Mitarbeit −', 'Ø Mündlich', 'Noten Mündlich', 'Ø Schriftlich', 'Noten Schriftlich', 'HÜ gebracht', 'HÜ nicht gebracht', 'Verhalten +', 'Verhalten −']];
+    const head = ['Name'];
+    for (const k of SCALABLE) head.push(`${TYPES[k].label} Ø`, `${TYPES[k].label} Einträge`);
+    head.push('HÜ gebracht', 'HÜ nicht gebracht', 'Verhalten +', 'Verhalten −', 'Gesamtnote');
+    const rows = [head];
     for (const s of [...c.students].sort(byName)) {
-      const st = stats(c.id, s.id);
-      rows.push([s.name, st.ma['+'], st.ma['~'], st.ma['-'],
-        st.muAvg == null ? '' : fmtNum(st.muAvg), st.mu.join(' '),
-        st.swAvg == null ? '' : fmtNum(st.swAvg), st.sw.join(' '), st.hu.y, st.hu.n, st.vh.p, st.vh.n]);
+      const st = stats(c, s.id);
+      const r = [s.name];
+      for (const k of SCALABLE) r.push(st.avg[k] == null ? '' : fmtNum(st.avg[k]), st.list[k].join(' '));
+      r.push(st.hu.y, st.hu.n, st.vh.p, st.vh.n, st.total == null ? '' : fmtNum(st.total));
+      rows.push(r);
     }
+    rows.push([], [`Gewichtung: ${weightSummary(c)}`]);
     saveFile(`Übersicht_${safeName(c.name)}_${today()}.csv`, 'text/csv', toCSV(rows));
   },
   exportEntries() {
     const c = currentClass(); if (!c) return;
     const names = Object.fromEntries(c.students.map(s => [s.id, s.name]));
-    const rows = [['Datum', 'Name', 'Kategorie', 'Wert', 'Notiz']];
+    const rows = [['Datum', 'Name', 'Kategorie', 'Wert', 'Gewicht', 'Notiz']];
     entriesOf(c.id).filter(e => names[e.s]).sort((a, b) => a.d.localeCompare(b.d) || names[a.s].localeCompare(names[b.s], 'de'))
       .forEach(e => rows.push([e.d.split('-').reverse().join('.'), names[e.s], (TYPES[e.t] || { long: e.t }).long,
         e.t === 'hu' ? (e.v === 'y' ? 'gebracht' : 'nicht gebracht') : e.t === 'vh' ? (e.v === 'p' ? 'positiv' : 'negativ') : valInfo(e.t, e.v)[1],
-        e.n || '']));
+        e.w ? fmtW(e.w) : '1', e.n || '']));
     saveFile(`Einträge_${safeName(c.name)}_${today()}.csv`, 'text/csv', toCSV(rows));
   },
   exportBackup() {
