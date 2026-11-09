@@ -183,8 +183,9 @@ main {
 .citem { display: flex; align-items: center; gap: 14px; padding: 14px 14px 14px 16px; min-height: 74px; }
 .citem:active, .orow:active, .lrow:active { background: var(--surface-2); }
 .cbody { flex: 1; min-width: 0; display: grid; gap: 1px; }
-.ctitle { font-size: 17px; font-weight: 600; letter-spacing: -.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ctitle { font-size: 17px; font-weight: 600; letter-spacing: -.01em; line-height: 1.25; overflow-wrap: break-word; }
 .csub { font-size: 14px; color: var(--ink-3); }
+.cwhen { flex: none; font-size: 13px; color: var(--ink-3); }
 .chev { color: var(--ink-3); opacity: .7; }
 
 /* ---------- Segment ---------- */
@@ -230,7 +231,13 @@ main {
 /* ---------- Eintragezeilen ---------- */
 .srow { display: flex; align-items: center; gap: 10px; padding: 9px 10px 9px 16px; min-height: 62px; }
 .sname-wrap { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 3px; padding: 6px 0; }
-.sname { font-size: 16px; font-weight: 500; line-height: 1.25; overflow-wrap: anywhere; }
+.sname { font-size: 16px; font-weight: 500; line-height: 1.25; overflow-wrap: break-word; -webkit-hyphens: auto; hyphens: auto; }
+/* Fünf Notenknöpfe: wird es für den Namen zu eng, rutschen die Knöpfe sauber in eine eigene Zeile */
+.srow { flex-wrap: wrap; row-gap: 2px; }
+.srow .sname-wrap { flex: 1 1 84px; }
+.srow .vals { margin-left: auto; }
+.srow.five .vals { gap: 5px; }
+.srow.five .v { width: 36px; height: 38px; border-radius: 11px; }
 .smeta { display: flex; gap: 6px; }
 .tagmini { font-size: 12px; font-weight: 650; padding: 1px 7px; border-radius: 999px; }
 .tagmini.g { background: var(--pos-soft); color: var(--pos); }
@@ -256,13 +263,14 @@ main {
 .orow { display: block; padding: 14px 14px 14px 16px; }
 .otop { display: flex; align-items: center; gap: 12px; }
 .oname { flex: 1; min-width: 0; font-size: 16px; font-weight: 600; overflow-wrap: anywhere; }
-.metrics {
-  display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; margin: 12px 0 0;
-  padding: 10px 12px; background: var(--surface-2); border-radius: 12px;
+.metrics { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 0 50px; }
+.met {
+  display: inline-flex; align-items: baseline; gap: 6px; padding: 5px 9px; border-radius: 9px;
+  background: var(--surface-2); white-space: nowrap;
 }
-.m { display: grid; gap: 1px; }
-.ml { font-size: 11px; color: var(--ink-3); font-weight: 500; }
-.mv { font-size: 15px; font-weight: 650; font-variant-numeric: tabular-nums; display: flex; gap: 5px; }
+.met .ml { font-size: 12px; color: var(--ink-3); font-weight: 500; }
+.met .mv { font-size: 14px; font-weight: 650; font-variant-numeric: tabular-nums; display: inline-flex; gap: 5px; }
+@media (max-width: 380px) { .metrics { margin-left: 0; } }
 .legend { color: var(--ink-3); font-size: 13px; line-height: 1.5; margin: 12px 4px 16px; }
 
 /* ---------- Schüler:in ---------- */
@@ -271,7 +279,7 @@ main {
 .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
 .tile { background: var(--surface); border-radius: 16px; box-shadow: var(--shadow); padding: 14px 15px; min-height: 96px; }
 .tile .k { font-size: 13px; color: var(--ink-3); font-weight: 500; }
-.tile .val { font-size: 24px; font-weight: 700; letter-spacing: -.02em; margin-top: 4px; font-variant-numeric: tabular-nums; display: flex; gap: 8px; }
+.tile .val { font-size: clamp(19px, 6.4vw, 24px); font-weight: 700; letter-spacing: -.02em; margin-top: 4px; font-variant-numeric: tabular-nums; display: flex; flex-wrap: wrap; gap: 0 7px; }
 .tile .sub { font-size: 13px; color: var(--ink-3); margin-top: 2px; }
 .filters { margin-top: 24px; }
 .dayh { font-size: 13px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-3); margin: 20px 4px 8px; }
@@ -299,6 +307,7 @@ main {
 .lrow.danger { color: var(--neg); }
 .lrow.danger .licon { background: var(--neg-soft); color: var(--neg); }
 .lrow.static { cursor: default; }
+.lrow.info .grow { font-size: 15px; color: var(--ink-2); line-height: 1.45; }
 
 /* ---------- Sheet (Dialog von unten) ---------- */
 dialog {
@@ -394,3 +403,7 @@ button.badge { border: 0; font-family: inherit; display: inline-flex; align-item
 button.badge:active { transform: scale(.94); }
 .badge small { font-size: 11px; font-weight: 700; opacity: .85; }
 a.btn { text-decoration: none; }
+@media (prefers-color-scheme: dark) {
+  .tile.total { background: var(--accent-soft); color: var(--ink); box-shadow: 0 0 0 1px rgba(124, 196, 178, .18); }
+  .tile.total .val { color: var(--accent); }
+}

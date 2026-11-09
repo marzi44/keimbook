@@ -8,7 +8,7 @@ const PUBLIC_KEY = {
   x: 'kHkzCWyGjuxGxGf_3AMH2F_MKEWEjH1hfCnBf7K1Imo',
   y: 'Fv556fMFzralLJTUqYxNxI68b9Fd4ctkLzgn07BzKj0'
 };
-const APP_VERSION = '2.1';
+const APP_VERSION = '2.2';
 
 const TYPES = {
   ma: { label: 'Mitarbeit', long: 'Mitarbeit', icon: 'spark', vals: [['+', '+', 'g'], ['~', '~', 'm'], ['-', '−', 'b']] },
@@ -71,6 +71,7 @@ function dayWord(iso) {
   if (iso === shiftDay(t, 1)) return 'Morgen';
   return dt(iso).toLocaleDateString('de-AT', { weekday: 'long' });
 }
+function shortDay(iso) { const w = dayWord(iso); return ['Heute', 'Gestern', 'Morgen'].includes(w) ? w : dt(iso).toLocaleDateString('de-AT', { day: 'numeric', month: 'numeric' }); }
 function relDay(iso) { const w = dayWord(iso); return ['Heute', 'Gestern', 'Morgen'].includes(w) ? w.toLowerCase() : 'am ' + fmtDay(iso); }
 function avc(s) { let h = 0; for (const ch of String(s)) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return 'c' + (h % 8); }
 function initials(name) { const p = String(name).trim().split(/\s+/); return ((p[0] || '')[0] || '').toUpperCase() + ((p[1] || '')[0] || '').toUpperCase(); }
@@ -232,7 +233,8 @@ function viewHome() {
     return `<a class="citem" href="#/k/${c.id}">
       <span class="ctile ${avc(c.name)}">${esc(shortClass(c.name))}</span>
       <span class="cbody"><span class="ctitle">${esc(c.name)}</span>
-      <span class="csub">${plural(c.students.length, 'Schüler:in', 'Schüler:innen')}${last ? ' · zuletzt ' + relDay(last) : ''}</span></span>${ICON.chev}</a>`;
+      <span class="csub">${plural(c.students.length, 'Schüler:in', 'Schüler:innen')}</span></span>
+      ${last ? `<span class="cwhen">${esc(shortDay(last))}</span>` : ''}${ICON.chev}</a>`;
   }).join('');
   return hero + `<div class="card">${items}</div>
     <div class="pill-row">
@@ -296,7 +298,7 @@ function rowHTML(c, s) {
     btns = valsFor(c, ui.type).map(([v, label, cls]) =>
       `<button class="v ${cls} ${curV === v ? 'on' : ''}" data-a="mark" data-s="${s.id}" data-v="${v}" aria-label="${esc(t.label + ' ' + label)}">${glyph(label)}</button>`).join('');
   }
-  return `<div class="srow" data-row="${s.id}">
+  return `<div class="srow${!t.multi && valsFor(c, ui.type).length > 3 ? ' five' : ''}" data-row="${s.id}">
     <a class="sname-wrap" href="#/s/${c.id}/${s.id}"><span class="sname">${esc(s.name)}</span>${meta ? `<span class="smeta">${meta}</span>` : ''}</a>
     <div class="vals">${btns}</div></div>`;
 }
@@ -331,8 +333,8 @@ const dash = '<span class="chev">–</span>';
 
 function metricHTML(c, st, k) {
   if (k === 'hu') { const T = st.hu.y + st.hu.n; return T ? `${st.hu.y}/${T}` : dash; }
-  if (k === 'vh') return `<span class="g-t">${st.vh.p}</span><span class="b-t">${st.vh.n}</span>`;
-  if (scaleOf(c, k) === 'pm') { const x = st.cnt[k]; return `<span class="g-t">${x['+']}</span><span class="m-t">${x['~']}</span><span class="b-t">${x['-']}</span>`; }
+  if (k === 'vh') return `<span class="g-t">+${st.vh.p}</span><span class="b-t">−${st.vh.n}</span>`;
+  if (scaleOf(c, k) === 'pm') { const x = st.cnt[k]; return `<span class="g-t">+${x['+']}</span><span class="m-t">~${x['~']}</span><span class="b-t">−${x['-']}</span>`; }
   return st.avg[k] == null ? dash : `<span class="${gradeCls(st.avg[k])}">${fmtNum(st.avg[k])}</span>`;
 }
 
@@ -342,10 +344,10 @@ function viewOverview(c) {
     return `<a class="orow" href="#/s/${c.id}/${s.id}">
       <div class="otop"><span class="av ${avc(s.name)}">${esc(initials(s.name))}</span><span class="oname">${esc(s.name)}</span>
       ${st.total == null ? '' : `<span class="tot ${gradeCls(st.total)}">Ø ${fmtNum(st.total)}</span>`}${ICON.chev}</div>
-      <div class="metrics">${Object.keys(TYPES).map(k => `<div class="m"><span class="ml">${SHORT[k]}</span><span class="mv">${metricHTML(c, st, k)}</span></div>`).join('')}</div></a>`;
+      <div class="metrics">${Object.keys(TYPES).map(k => `<span class="met"><span class="ml">${SHORT[k]}</span><span class="mv">${metricHTML(c, st, k)}</span></span>`).join('')}</div></a>`;
   }).join('');
   return `<div class="card">${rows}</div>
-    <p class="legend">Ø = gewichtete Gesamtnote (${esc(weightSummary(c))}). Farben: <span class="g-t">positiv</span> · <span class="m-t">neutral</span> · <span class="b-t">negativ</span>. HÜ zeigt „gebracht / gesamt“.</p>
+    <p class="legend">Ø = gewichtete Gesamtnote (${esc(weightSummary(c))}). HÜ zeigt „gebracht / gesamt“.</p>
     <div class="stack">
       <a class="btn secondary block" href="#/b/${c.id}">${ICON.sliders} Bewertung & Gewichtung</a>
       <button class="btn secondary block" data-a="exportOverview">${ICON.download} Übersicht exportieren</button>
@@ -455,7 +457,7 @@ function viewSettings() {
     <div class="card"><div class="lrow static"><span class="licon">${ICON.key}</span><span class="grow">${esc(license.info.n)}</span><span class="muted">${esc(exp)}</span></div></div>
 
     <div class="section">Datenschutz</div>
-    <div class="card"><div class="lrow static"><span class="licon">${ICON.shield}</span><span class="grow">Keine Cloud, kein Konto, keine Analyse. Die App sendet keine Daten ins Internet.</span></div></div>
+    <div class="card"><div class="lrow static info"><span class="licon">${ICON.shield}</span><span class="grow">Keine Cloud, kein Konto, keine Analyse. Die App sendet keine Daten ins Internet.</span></div></div>
 
     <div class="section">Daten</div>
     <div class="card"><button class="lrow danger" data-a="wipe"><span class="licon">${ICON.trash}</span><span class="grow">Alle Daten löschen</span></button></div>
