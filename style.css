@@ -34,25 +34,35 @@
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-html, body { margin: 0; }
+/* App-Rahmen: Seite selbst bewegt sich nie, nur der Inhaltsbereich scrollt */
+html, body {
+  margin: 0; height: 100%; overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-text-size-adjust: 100%; text-size-adjust: 100%;
+}
 body {
+  position: fixed; inset: 0;
+  display: flex; flex-direction: column;
   background: var(--bg);
   color: var(--text);
   font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  min-height: 100vh;
-  padding-bottom: calc(24px + env(safe-area-inset-bottom));
+  touch-action: manipulation;
+  -webkit-user-select: none; user-select: none;
+  -webkit-touch-callout: none;
 }
+input, textarea { -webkit-user-select: text; user-select: text; }
+img, svg { -webkit-user-drag: none; }
 button, input, textarea { font: inherit; color: inherit; }
 a { color: inherit; text-decoration: none; }
 [hidden] { display: none !important; }
 
 /* Kopfzeile */
 .top {
-  position: sticky; top: 0; z-index: 5;
+  flex: none; z-index: 5;
   display: flex; align-items: center; gap: 4px;
-  padding: calc(8px + env(safe-area-inset-top)) 8px 8px;
-  background: color-mix(in srgb, var(--bg) 88%, transparent);
-  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  min-height: calc(57px + env(safe-area-inset-top));
+  padding: calc(8px + env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) 8px max(8px, env(safe-area-inset-left));
+  background: var(--bg);
   border-bottom: 1px solid var(--line);
 }
 .top h1 { flex: 1; margin: 0 8px; font-size: 18px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -62,7 +72,14 @@ a { color: inherit; text-decoration: none; }
 }
 .icon-btn:active { background: var(--accent-soft); }
 
-main { max-width: 640px; margin: 0 auto; padding: 16px; }
+main {
+  flex: 1; min-height: 0; width: 100%;
+  overflow-y: auto; overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding: 16px max(16px, calc((100% - 640px) / 2)) calc(32px + env(safe-area-inset-bottom));
+}
 
 /* Listen */
 .list { list-style: none; margin: 0; padding: 0; background: var(--card); border-radius: var(--radius); overflow: hidden; border: 1px solid var(--line); }
@@ -93,6 +110,7 @@ main { max-width: 640px; margin: 0 auto; padding: 16px; }
 .link-btn { width: 100%; text-align: left; border: 0; background: none; cursor: pointer; }
 .link-btn.danger { color: var(--bad); }
 
+.actions-row { display: flex; justify-content: space-between; gap: 8px; margin-top: 12px; }
 .empty { text-align: center; padding: 48px 16px; color: var(--muted); }
 .empty .stack { max-width: 280px; margin: 16px auto 0; }
 
@@ -111,7 +129,7 @@ main { max-width: 640px; margin: 0 auto; padding: 16px; }
 .daylabel { text-align: center; color: var(--muted); font-size: 14px; margin: -4px 0 12px; }
 
 /* Kategorie-Chips */
-.chips { display: flex; gap: 8px; overflow-x: auto; margin: 0 -16px 14px; padding: 0 16px; scrollbar-width: none; }
+.chips { display: flex; gap: 8px; overflow-x: auto; overscroll-behavior-x: contain; margin: 0 0 14px; padding: 0; scrollbar-width: none; }
 .chips::-webkit-scrollbar { display: none; }
 .chip {
   flex: none; border: 1px solid var(--line); background: var(--card); border-radius: 999px;
@@ -201,7 +219,8 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
 .lock p { color: var(--muted); margin: 0 0 20px; }
 .lock textarea {
   width: 100%; min-height: 110px; padding: 12px; border: 1px solid var(--line); border-radius: 12px;
-  background: var(--card); font: 14px/1.4 ui-monospace, Menlo, monospace; word-break: break-all; margin-bottom: 12px;
+  background: var(--card); font: 16px/1.4 ui-monospace, Menlo, monospace; word-break: break-all; margin-bottom: 12px;
 }
+.tbl-wrap { overscroll-behavior-x: contain; }
 .lock .err { color: var(--bad); min-height: 22px; margin: 0 0 8px; }
 .lock .hint { text-align: left; }

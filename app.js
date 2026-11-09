@@ -8,7 +8,7 @@ const PUBLIC_KEY = {
   x: 'kHkzCWyGjuxGxGf_3AMH2F_MKEWEjH1hfCnBf7K1Imo',
   y: 'Fv556fMFzralLJTUqYxNxI68b9Fd4ctkLzgn07BzKj0'
 };
-const APP_VERSION = '1.0';
+const APP_VERSION = '1.2';
 
 const TYPES = {
   ma: { label: 'Mitarbeit', long: 'Mitarbeit', vals: [['+', '+', 'g'], ['~', '~', 'm'], ['-', '−', 'b']] },
@@ -134,21 +134,24 @@ function render() {
   else if (view === 'einstellungen') v.innerHTML = viewSettings();
   else { if (location.hash && location.hash !== '#/') history.replaceState(null, '', '#/'); v.innerHTML = viewHome(); }
 }
-window.addEventListener('hashchange', () => { render(); window.scrollTo(0, 0); });
-
+window.addEventListener('hashchange', () => { render(); $('main').scrollTop = 0; });
+// Kein Zoomen per Zwei-Finger-Geste (iOS ignoriert user-scalable=no)
+['gesturestart', 'gesturechange', 'gestureend'].forEach(t => document.addEventListener(t, e => e.preventDefault(), { passive: false }));
 /* ---------- Startseite ---------- */
 function viewHome() {
   setHeader('Klassenbuch', null, { icon: 'gear', a: 'goSettings', label: 'Einstellungen' });
   if (!data.classes.length) {
     return `<div class="empty"><p>Noch keine Klasse angelegt.</p>
-      <div class="stack"><button class="btn primary" data-a="addClass">Klasse anlegen</button>
-      <button class="btn" data-a="importBackup">Sicherung importieren</button></div></div>`;
+      <div class="stack"><button class="btn primary" data-a="importAny">Schülerliste importieren</button>
+      <button class="btn" data-a="addClass">Klasse selbst anlegen</button></div>
+      <p class="hint">WebUntis-Export (Excel oder CSV) – Klassen werden automatisch angelegt. Auch Datensicherungen lassen sich hier einlesen.</p></div>`;
   }
   const items = [...data.classes].sort(byName).map(c => `
     <li><a class="item" href="#/k/${c.id}"><span class="grow">${esc(c.name)}</span>
     <span class="muted">${c.students.length} ${c.students.length === 1 ? 'Schüler:in' : 'Schüler:innen'}</span>${ICON.chev}</a></li>`).join('');
   return `<ul class="list">${items}</ul>
-    <div class="stack filter"><button class="btn ghost" data-a="addClass">${ICON.plus} Neue Klasse</button></div>`;
+    <div class="actions-row"><button class="btn ghost" data-a="addClass">${ICON.plus} Neue Klasse</button>
+    <button class="btn ghost" data-a="importAny">Importieren</button></div>`;
 }
 
 /* ---------- Klasse ---------- */
@@ -157,8 +160,8 @@ function viewClass(c) {
   if (!c.students.length) {
     return `<div class="empty"><p>Diese Klasse hat noch keine Schüler:innen.</p>
       <div class="stack"><button class="btn primary" data-a="addStudents">Namen eingeben</button>
-      <button class="btn" data-a="importStudents">Liste importieren (CSV)</button></div>
-      <p class="hint">CSV aus Excel: „Speichern unter → CSV“. Eine Zeile pro Person, z. B. „Nachname;Vorname“.</p></div>`;
+      <button class="btn" data-a="importStudents">Liste importieren</button></div>
+      <p class="hint">WebUntis-Export, Excel (.xlsx) oder CSV.</p></div>`;
   }
   const seg = `<div class="seg">
     <button class="${ui.tab === 'e' ? 'on' : ''}" data-a="tab" data-v="e">Eintragen</button>
@@ -352,20 +355,113 @@ function parseCSV(text) {
 const csvCell = v => { const s = String(v ?? ''); return /[;"\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
 const toCSV = rows => '﻿' + rows.map(r => r.map(csvCell).join(';')).join('\r\n');
 
-function namesFromRows(rows) {
-  if (!rows.length) return [];
-  const h = rows[0].map(x => x.toLowerCase());
-  const iN = h.findIndex(x => /nachname|familienname|zuname/.test(x));
-  const iV = h.findIndex(x => /vorname/.test(x));
-  const iName = h.findIndex(x => /^(name|schüler|schülerin|schüler:in|schueler)$/.test(x));
-  const hasHeader = iN >= 0 || iV >= 0 || iName >= 0;
-  const body = hasHeader ? rows.slice(1) : rows;
-  return body.map(r => {
-    if (iN >= 0 || iV >= 0) return [r[iN] || '', r[iV] || ''].join(' ').trim();
-    if (iName >= 0) return r[iName] || '';
-    return r.filter(Boolean).slice(0, 2).join(' ');
-  }).map(n => n.replace(/\s+/g, ' ').trim()).filter(Boolean);
+/* ----- Tabellen lesen: CSV/TXT (alle Kodierungen), Excel .xlsx, HTML-Tabelle (.xls aus WebUntis) ----- */
+function decodeText(buf) {
+  if (buf[0] === 0xFF && buf[1] === 0xFE) return new TextDecoder('utf-16le').decode(buf);
+  if (buf[0] === 0xFE && buf[1] === 0xFF) return new TextDecoder('utf-16be').decode(buf);
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(buf); }
+  catch { return new TextDecoder('windows-1252').decode(buf); }
 }
+
+function unzip(buf) {
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  let eocd = -1;
+  for (let i = buf.length - 22; i >= Math.max(0, buf.length - 65557); i--) if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  if (eocd < 0) throw new Error('Keine gültige Excel-Datei');
+  const count = dv.getUint16(eocd + 10, true); let p = dv.getUint32(eocd + 16, true);
+  const files = {};
+  for (let n = 0; n < count && dv.getUint32(p, true) === 0x02014b50; n++) {
+    const nlen = dv.getUint16(p + 28, true), xlen = dv.getUint16(p + 30, true), clen = dv.getUint16(p + 32, true);
+    files[new TextDecoder().decode(buf.subarray(p + 46, p + 46 + nlen))] =
+      { method: dv.getUint16(p + 10, true), size: dv.getUint32(p + 20, true), off: dv.getUint32(p + 42, true) };
+    p += 46 + nlen + xlen + clen;
+  }
+  return {
+    names: Object.keys(files),
+    async text(name) {
+      const f = files[name]; if (!f) return null;
+      const start = f.off + 30 + dv.getUint16(f.off + 26, true) + dv.getUint16(f.off + 28, true);
+      const raw = buf.subarray(start, start + f.size);
+      if (f.method === 0) return new TextDecoder().decode(raw);
+      if (typeof DecompressionStream === 'undefined') throw new Error('Excel-Dateien werden auf diesem Gerät nicht unterstützt – bitte als CSV speichern');
+      const out = await new Response(new Blob([raw]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer();
+      return new TextDecoder().decode(out);
+    }
+  };
+}
+
+async function readXlsx(buf) {
+  const z = unzip(buf);
+  const xml = s => new DOMParser().parseFromString(s, 'application/xml');
+  const tags = (el, n) => [...el.getElementsByTagNameNS('*', n)];
+  const ss = await z.text('xl/sharedStrings.xml');
+  const shared = ss ? tags(xml(ss), 'si').map(si => tags(si, 't').map(t => t.textContent).join('')) : [];
+  const sheet = z.names.includes('xl/worksheets/sheet1.xml') ? 'xl/worksheets/sheet1.xml'
+    : z.names.filter(n => /^xl\/worksheets\/[^/]+\.xml$/.test(n)).sort()[0];
+  if (!sheet) throw new Error('Keine Tabelle in der Excel-Datei gefunden');
+  const colIdx = ref => { const m = /^[A-Z]+/.exec(ref || ''); if (!m) return -1; let n = 0; for (const ch of m[0]) n = n * 26 + ch.charCodeAt(0) - 64; return n - 1; };
+  return tags(xml(await z.text(sheet)), 'row').map(r => {
+    const row = [];
+    for (const c of tags(r, 'c')) {
+      const t = c.getAttribute('t'), v = tags(c, 'v')[0]?.textContent ?? '';
+      const val = t === 's' ? shared[+v] ?? '' : t === 'inlineStr' ? tags(c, 't').map(x => x.textContent).join('') : v;
+      const i = colIdx(c.getAttribute('r'));
+      row[i >= 0 ? i : row.length] = val;
+    }
+    return Array.from(row, x => String(x ?? '').trim());
+  }).filter(r => r.some(Boolean));
+}
+
+function readHtmlTable(text) {
+  const doc = new DOMParser().parseFromString(text, 'text/html');
+  const tables = [...doc.querySelectorAll('table')];
+  const t = tables.sort((a, b) => b.rows.length - a.rows.length)[0];
+  if (!t) return [];
+  return [...t.rows].map(r => [...r.cells].map(c => c.textContent.replace(/\s+/g, ' ').trim())).filter(r => r.some(Boolean));
+}
+
+async function readTable(file) {
+  const buf = new Uint8Array(await file.arrayBuffer());
+  if (buf[0] === 0x50 && buf[1] === 0x4B) return readXlsx(buf);
+  if (buf[0] === 0xD0 && buf[1] === 0xCF) throw new Error('Altes Excel-Format (.xls) – bitte in Excel als .xlsx oder CSV speichern');
+  const text = decodeText(buf);
+  if (/<table[\s>]/i.test(text)) return readHtmlTable(text);
+  return parseCSV(text);
+}
+
+/* ----- Schülerlisten erkennen (WebUntis, Sokrates, Excel, freie Listen) ----- */
+function parseStudents(rows) {
+  const norm = s => String(s || '').toLowerCase().replace(/[*:_]/g, '').trim();
+  let hi = -1, iN = -1, iV = -1, iName = -1, iK = -1;
+  for (let r = 0; r < Math.min(rows.length, 10) && hi < 0; r++) {
+    const h = rows[r].map(norm);
+    const nN = h.findIndex(x => /^(nachname|familienname|zuname|familien-?name)$/.test(x));
+    const nV = h.findIndex(x => /^vorname/.test(x));
+    const nName = h.findIndex(x => /^(name|langname|schüler(in|innen)?|schueler(in|innen)?|student|schülername)$/.test(x));
+    if (nN >= 0 || nV >= 0 || nName >= 0) {
+      hi = r; iN = nN; iV = nV; iName = nName;
+      iK = h.findIndex(x => /^(klasse|klassen|klassenname|stammklasse|class|kl\.?)$/.test(x));
+      if (iK < 0) iK = h.findIndex(x => /klasse/.test(x) && !/vorstand|lehrer|sprecher|kv/.test(x));
+    }
+  }
+  if (iN < 0 && iV >= 0 && iName >= 0) { iN = iName; iName = -1; } // WebUntis: "Name" + "Vorname"
+  const body = hi >= 0 ? rows.slice(hi + 1) : rows;
+  const groups = new Map();
+  let total = 0;
+  for (const r of body) {
+    let name;
+    if (iN >= 0 || iV >= 0) name = [r[iN] || '', r[iV] || ''].join(' ');
+    else if (iName >= 0) name = r[iName] || '';
+    else name = r.filter(Boolean).slice(0, 2).join(' ');
+    name = name.replace(/\s+/g, ' ').trim();
+    if (!name || /^\d+$/.test(name) || /^(anzahl|summe|gesamt)\b/i.test(name)) continue;
+    const k = iK >= 0 ? (r[iK] || '').trim() : '';
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(name); total++;
+  }
+  return { groups, hasClass: iK >= 0, total };
+}
+const namesFromRows = rows => [...parseStudents(rows).groups.values()].flat();
 
 function addNames(c, names) {
   const have = new Set(c.students.map(s => s.name.toLowerCase()));
@@ -401,7 +497,7 @@ const actions = {
     const c = currentClass(); if (!c) return;
     const k = await modal({
       title: c.name, options: [
-        ['add', 'Schüler:innen hinzufügen'], ['imp', 'Liste importieren (CSV)'],
+        ['add', 'Schüler:innen hinzufügen'], ['imp', 'Liste importieren (WebUntis, Excel, CSV)'],
         ['ov', 'Übersicht exportieren (CSV)'], ['all', 'Alle Einträge exportieren (CSV)'],
         ['ren', 'Klasse umbenennen'], ['del', 'Klasse löschen', true]
       ], cancel: 'Schließen'
@@ -432,11 +528,56 @@ const actions = {
     const c = currentClass(); if (!c) return;
     const f = await pickFile(); if (!f) return;
     try {
-      const names = namesFromRows(parseCSV(await readText(f)));
+      const p = parseStudents(await readTable(f));
+      // Enthält die Datei mehrere Klassen, nur die passende übernehmen
+      let names = [...p.groups.values()].flat();
+      if (p.hasClass && p.groups.size > 1) {
+        const match = [...p.groups.keys()].find(k => k.toLowerCase() === c.name.toLowerCase() || c.name.toLowerCase().startsWith(k.toLowerCase() + ' '));
+        if (match) names = p.groups.get(match);
+      }
       if (!names.length) return toast('Keine Namen in der Datei gefunden');
       const n = addNames(c, names); await save(); render();
       toast(`${n} importiert${names.length - n ? `, ${names.length - n} schon vorhanden` : ''}`);
-    } catch { toast('Datei konnte nicht gelesen werden'); }
+    } catch (e) { toast(e && e.message ? e.message : 'Datei konnte nicht gelesen werden'); }
+  },
+
+  // Startseite: eine Datei für alles – WebUntis/Excel/CSV-Listen oder Datensicherung
+  async importAny(arg) {
+    const f = arg instanceof File ? arg : await pickFile(); if (!f) return;
+    let rows;
+    try {
+      const head = new Uint8Array(await f.slice(0, 4).arrayBuffer());
+      if (head[0] === 0x7B || /\.json$/i.test(f.name)) return actions.importBackup(f);
+      rows = await readTable(f);
+    } catch (e) { return toast(e && e.message ? e.message : 'Datei konnte nicht gelesen werden'); }
+    const p = parseStudents(rows);
+    if (!p.total) return toast('Keine Namen in der Datei gefunden');
+
+    let groups = [...p.groups.entries()];
+    if (!p.hasClass || (groups.length === 1 && !groups[0][0])) {
+      const guess = f.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ')
+        .replace(/\b(schüler(innen)?|schueler(innen)?|liste|export|webuntis|klasse)\b/gi, '').replace(/\s+/g, ' ').trim();
+      const name = (await modal({ title: 'Name der Klasse', text: `${p.total} Namen gefunden. Die Datei enthält keine Klassenspalte.`, input: true, value: guess, placeholder: 'z. B. 3B', ok: 'Weiter' }) || '').trim();
+      if (!name) return;
+      groups = [[name, [...p.groups.values()].flat()]];
+    } else {
+      groups = groups.map(([k, n]) => [k || 'Ohne Klasse', n]);
+    }
+    groups.sort((a, b) => a[0].localeCompare(b[0], 'de', { numeric: true }));
+
+    const findClass = k => data.classes.find(c => c.name.toLowerCase() === k.toLowerCase());
+    const summary = groups.map(([k, n]) => `${k}: ${n.length} ${findClass(k) ? '(wird ergänzt)' : '(neu)'}`).join('\n');
+    if (!await modal({ title: groups.length === 1 ? 'Klasse importieren' : `${groups.length} Klassen importieren`, text: summary, ok: 'Importieren' })) return;
+
+    let added = 0, created = 0, last = null;
+    for (const [k, names] of groups) {
+      let c = findClass(k);
+      if (!c) { c = { id: uid(), name: k, students: [] }; data.classes.push(c); created++; }
+      added += addNames(c, names); last = c;
+    }
+    await save();
+    toast(`${created ? created + (created === 1 ? ' Klasse' : ' Klassen') + ' angelegt, ' : ''}${added} Schüler:innen importiert`);
+    if (groups.length === 1) location.hash = '#/k/' + last.id; else { location.hash = '#/'; render(); }
   },
 
   tab(d) { ui.tab = d.v; saveUi(); render(); },
@@ -511,8 +652,11 @@ const actions = {
     const out = { app: 'klassenbuch', format: 1, exportiert: new Date().toISOString(), data };
     saveFile(`Klassenbuch-Sicherung_${today()}.json`, 'application/json', JSON.stringify(out));
   },
-  async importBackup() {
-    const f = await pickFile(); if (!f) return;
+  async importBackup(arg) {
+    const f = arg instanceof File ? arg : await pickFile(); if (!f) return;
+    // Keine Sicherung, sondern z. B. eine Schülerliste? Dann als Liste importieren.
+    const head = new Uint8Array(await f.slice(0, 4).arrayBuffer());
+    if (head[0] !== 0x7B && !/\.json$/i.test(f.name)) return actions.importAny(f);
     let inc;
     try {
       const j = JSON.parse(await readText(f));
