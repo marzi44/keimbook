@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'">
 <meta name="referrer" content="no-referrer">
-<meta name="theme-color" content="#2f6f62">
+<meta name="theme-color" content="#F4F3EF" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0E0F10" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -17,14 +18,17 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<header class="top">
-  <a id="back" class="icon-btn" href="#/" aria-label="Zurück" hidden>
-    <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-  </a>
-  <h1 id="title">Klassenbuch</h1>
-  <button id="act" class="icon-btn" type="button" hidden></button>
+<header class="top" id="top">
+  <div class="top-l">
+    <a id="back" class="back" href="#/" hidden>
+      <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d="M14.5 5.5L8 12l6.5 6.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span id="backlabel"></span>
+    </a>
+  </div>
+  <div class="top-title" id="title"></div>
+  <div class="top-r"><button id="act" class="icon-btn" type="button" hidden></button></div>
 </header>
-<main id="view"></main>
+<main id="main"><div id="view"></div></main>
 <dialog id="dlg"></dialog>
 <div id="toast" role="status" aria-live="polite"></div>
 <input type="file" id="file" hidden>

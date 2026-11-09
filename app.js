@@ -8,16 +8,22 @@ const PUBLIC_KEY = {
   x: 'kHkzCWyGjuxGxGf_3AMH2F_MKEWEjH1hfCnBf7K1Imo',
   y: 'Fv556fMFzralLJTUqYxNxI68b9Fd4ctkLzgn07BzKj0'
 };
-const APP_VERSION = '1.2';
+const APP_VERSION = '2.0';
 
 const TYPES = {
-  ma: { label: 'Mitarbeit', long: 'Mitarbeit', vals: [['+', '+', 'g'], ['~', '~', 'm'], ['-', '−', 'b']] },
-  mu: { label: 'Mündlich', long: 'Mündliche Wiederholung', vals: grades() },
-  sw: { label: 'Schriftlich', long: 'Schriftliche Wiederholung', vals: grades() },
-  hu: { label: 'HÜ', long: 'Hausübung', vals: [['y', '✓', 'g'], ['n', '✗', 'b']] }
+  ma: { label: 'Mitarbeit', long: 'Mitarbeit', icon: 'spark', vals: [['+', '+', 'g'], ['~', '~', 'm'], ['-', '−', 'b']] },
+  mu: { label: 'Mündlich', long: 'Mündliche Wiederholung', icon: 'speech', vals: grades() },
+  sw: { label: 'Schriftlich', long: 'Schriftliche Wiederholung', icon: 'pen', vals: grades() },
+  hu: { label: 'Hausübung', long: 'Hausübung', icon: 'book', vals: [['y', '✓', 'g'], ['n', '✗', 'b']] },
+  vh: { label: 'Verhalten', long: 'Verhalten', icon: 'smile', multi: true, vals: [['p', '+', 'g'], ['n', '−', 'b']] }
+};
+const VH_TAGS = {
+  p: ['Hilfsbereit', 'Engagiert', 'Konzentriert', 'Rücksichtsvoll', 'Selbstständig', 'Gute Teamarbeit'],
+  n: ['Stört den Unterricht', 'Unaufmerksam', 'Material vergessen', 'Zu spät', 'Handy', 'Respektlos']
 };
 function grades() { return [['1', '1', 'g'], ['2', '2', 'g'], ['3', '3', 'm'], ['4', '4', 'm'], ['5', '5', 'b']]; }
-const valInfo = (t, v) => TYPES[t].vals.find(x => x[0] === v) || [v, v, 'm'];
+const glyph = l => l === '~' ? '<span class="tl">~</span>' : l;
+const valInfo = (t, v) => (TYPES[t] && TYPES[t].vals.find(x => x[0] === v)) || [v, v, 'm'];
 
 /* ---------- Hilfsfunktionen ---------- */
 const $ = (s, el = document) => el.querySelector(s);
@@ -25,21 +31,50 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 const isoDate = d => { const x = new Date(d); x.setMinutes(x.getMinutes() - x.getTimezoneOffset()); return x.toISOString().slice(0, 10); };
 const today = () => isoDate(new Date());
-const fmtDay = iso => new Date(iso + 'T12:00').toLocaleDateString('de-AT', { weekday: 'short', day: 'numeric', month: 'numeric' });
-const fmtDayLong = iso => new Date(iso + 'T12:00').toLocaleDateString('de-AT', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+const dt = iso => new Date(iso + 'T12:00');
+const fmtDay = iso => dt(iso).toLocaleDateString('de-AT', { weekday: 'short', day: 'numeric', month: 'numeric' });
+const fmtDayLong = iso => dt(iso).toLocaleDateString('de-AT', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+const fmtDayHead = iso => dt(iso).toLocaleDateString('de-AT', { weekday: 'long', day: 'numeric', month: 'long' });
 const fmtNum = n => n.toFixed(1).replace('.', ',');
-const byName = (a, b) => a.name.localeCompare(b.name, 'de', { sensitivity: 'base' });
+const byName = (a, b) => a.name.localeCompare(b.name, 'de', { sensitivity: 'base', numeric: true });
 const lsGet = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } };
 const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { } };
 const b64uDec = s => { s = s.replace(/-/g, '+').replace(/_/g, '/'); while (s.length % 4) s += '='; return Uint8Array.from(atob(s), c => c.charCodeAt(0)); };
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+function shiftDay(iso, n) { const d = dt(iso); d.setDate(d.getDate() + n); return isoDate(d); }
+function dayWord(iso) {
+  const t = today();
+  if (iso === t) return 'Heute';
+  if (iso === shiftDay(t, -1)) return 'Gestern';
+  if (iso === shiftDay(t, 1)) return 'Morgen';
+  return dt(iso).toLocaleDateString('de-AT', { weekday: 'long' });
+}
+function relDay(iso) { const w = dayWord(iso); return ['Heute', 'Gestern', 'Morgen'].includes(w) ? w.toLowerCase() : 'am ' + fmtDay(iso); }
+function avc(s) { let h = 0; for (const ch of String(s)) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return 'c' + (h % 8); }
+function initials(name) { const p = String(name).trim().split(/\s+/); return ((p[0] || '')[0] || '').toUpperCase() + ((p[1] || '')[0] || '').toUpperCase(); }
+function shortClass(name) { const w = String(name).trim().split(/\s+/)[0] || ''; return w.length <= 4 ? w : w.slice(0, 3); }
 
+const svg = (d, s = 20, w = 2) => `<svg viewBox="0 0 24 24" width="${s}" height="${s}" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
 const ICON = {
-  gear: '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>',
-  more: '<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><circle cx="5" cy="12" r="2" fill="currentColor"/><circle cx="12" cy="12" r="2" fill="currentColor"/><circle cx="19" cy="12" r="2" fill="currentColor"/></svg>',
-  plus: '<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>',
-  left: '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-  right: '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-  chev: '<svg class="chev" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+  gear: svg('<circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>', 23, 1.7),
+  more: '<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" fill="currentColor"><circle cx="5" cy="12" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="19" cy="12" r="1.9"/></svg>',
+  plus: svg('<path d="M12 5v14M5 12h14"/>', 20, 2.2),
+  left: svg('<path d="M14.5 5.5L8 12l6.5 6.5"/>', 22, 2.2),
+  right: svg('<path d="M9.5 5.5L16 12l-6.5 6.5"/>', 22, 2.2),
+  chev: '<svg class="chev" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 5.5L16 12l-6.5 6.5"/></svg>',
+  spark: svg('<path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9L12 17.5l-1.9-5.1L5 10.5l5.1-1.9z"/><path d="M18.5 16.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z"/>', 18, 1.8),
+  speech: svg('<path d="M20 12.5a7.5 7.5 0 0 1-11 6.6L4 20l1.1-4.2A7.5 7.5 0 1 1 20 12.5z"/>', 18, 1.8),
+  pen: svg('<path d="M4 20h4L19.2 8.8a2.8 2.8 0 0 0-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>', 18, 1.8),
+  book: svg('<path d="M4.5 5.5A2.5 2.5 0 0 1 7 3h12.5v15H7a2.5 2.5 0 0 0-2.5 2.5z"/><path d="M4.5 20.5A2.5 2.5 0 0 1 7 18h12.5v3H7"/>', 18, 1.8),
+  smile: svg('<circle cx="12" cy="12" r="8.5"/><path d="M8.5 14a4.2 4.2 0 0 0 7 0"/><path d="M9.2 9.6h.01M14.8 9.6h.01" stroke-width="2.6"/>', 18, 1.8),
+  upload: svg('<path d="M12 15V4M7.5 8.5L12 4l4.5 4.5"/><path d="M4.5 15v3.5A1.5 1.5 0 0 0 6 20h12a1.5 1.5 0 0 0 1.5-1.5V15"/>', 19, 2),
+  download: svg('<path d="M12 4v11M7.5 10.5L12 15l4.5-4.5"/><path d="M4.5 15v3.5A1.5 1.5 0 0 0 6 20h12a1.5 1.5 0 0 0 1.5-1.5V15"/>', 19, 2),
+  key: svg('<circle cx="8" cy="15" r="4"/><path d="M11 12l8.5-8.5M16.5 6.5l2.5 2.5M14.5 8.5l2 2"/>', 18, 1.9),
+  shield: svg('<path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.2-7.5 9.5-4.3-1.3-7.5-4.9-7.5-9.5V6z"/><path d="M9 12l2 2 4-4"/>', 18, 1.9),
+  trash: svg('<path d="M4.5 7h15M10 11v6M14 11v6M6 7l1 12.5A1.5 1.5 0 0 0 8.5 21h7a1.5 1.5 0 0 0 1.5-1.5L18 7M9 7V4.5A1.5 1.5 0 0 1 10.5 3h3A1.5 1.5 0 0 1 15 4.5V7"/>', 18, 1.9),
+  frown: svg('<circle cx="12" cy="12" r="8.5"/><path d="M8.5 16a4.2 4.2 0 0 1 7 0"/><path d="M9.2 9.6h.01M14.8 9.6h.01" stroke-width="2.6"/>', 18, 1.8),
+  close: svg('<path d="M7 7l10 10M17 7L7 17"/>', 18, 2),
+  info: svg('<circle cx="12" cy="12" r="8.5"/><path d="M12 11v5M12 8h.01" stroke-width="2.4"/>', 18, 1.9)
 };
 
 /* ---------- Speicher (IndexedDB, nur auf diesem Gerät) ---------- */
@@ -70,8 +105,11 @@ const DB = {
 
 let data = { classes: [], entries: [] };
 let license = null;
-const ui = Object.assign({ tab: 'e', type: 'ma', date: today(), filter: 'all' }, lsGet('kb.ui', {}));
+let lockMsg = '';
+const ui = Object.assign({ tab: 'e', type: 'ma', filter: 'all' }, lsGet('kb.ui', {}));
 ui.date = today(); // beim Start immer heute
+if (!TYPES[ui.type]) ui.type = 'ma';
+if (ui.filter !== 'all' && !TYPES[ui.filter]) ui.filter = 'all';
 
 async function save() {
   try { await DB.set('data', data); }
@@ -100,104 +138,149 @@ async function verifyLicense(code) {
   }
 }
 
-function viewLock(msg = '') {
-  setHeader('Klassenbuch');
-  $('#view').innerHTML = `
+function viewLock() {
+  setHeader({});
+  return `
     <div class="lock">
-      <img class="logo" src="icon-192.png" alt="">
-      <h2>Freischalten</h2>
-      <p>Diese App kann nur mit einer persönlichen Lizenz verwendet werden.</p>
-      <textarea id="lic" placeholder="Lizenzcode hier einfügen" autocapitalize="off" autocomplete="off" spellcheck="false"></textarea>
-      <p class="err">${esc(msg)}</p>
+      <img class="lock-logo" src="icon-512.png" alt="">
+      <h1>Klassenbuch</h1>
+      <p>Gib deinen persönlichen Lizenzcode ein, um die App freizuschalten.</p>
+      <textarea id="lic" placeholder="Lizenzcode hier einfügen" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false"></textarea>
+      <p class="err">${esc(lockMsg)}</p>
       <button class="btn primary block" data-a="activate">Freischalten</button>
-      <p class="hint">Tipp: Wenn du die App auf dem Home-Bildschirm installiert hast, gib den Code direkt in der installierten App ein.</p>
+      <p class="fine">Hast du die App auf dem Home-Bildschirm installiert, gib den Code direkt in der installierten App ein.<br>Alle Daten bleiben ausschließlich auf diesem Gerät.</p>
     </div>`;
 }
 
 /* ---------- Kopfzeile ---------- */
-function setHeader(title, back = null, act = null) {
+function setHeader({ title = '', back = null, backLabel = '', act = null } = {}) {
   $('#title').textContent = title;
   const b = $('#back'), a = $('#act');
-  b.hidden = !back; if (back) b.href = back;
+  b.hidden = !back;
+  if (back) { b.href = back; $('#backlabel').textContent = backLabel; }
   a.hidden = !act;
   if (act) { a.innerHTML = ICON[act.icon]; a.dataset.a = act.a; a.setAttribute('aria-label', act.label || ''); }
-  document.title = title === 'Klassenbuch' ? title : title + ' – Klassenbuch';
+  document.title = title && title !== 'Klassen' ? title + ' – Klassenbuch' : 'Klassenbuch';
 }
+const main = $('#main');
+const onScroll = () => $('#top').classList.toggle('scrolled', main.scrollTop > 44);
+main.addEventListener('scroll', onScroll, { passive: true });
 
 /* ---------- Routing ---------- */
+let lastKey = '';
 function render() {
-  if (!license) return viewLock();
-  const [view, a, b] = location.hash.replace(/^#\/?/, '').split('/');
   const v = $('#view');
-  if (view === 'k' && getClass(a)) v.innerHTML = viewClass(getClass(a));
-  else if (view === 's' && getClass(a) && getClass(a).students.find(s => s.id === b)) v.innerHTML = viewStudent(getClass(a), b);
-  else if (view === 'einstellungen') v.innerHTML = viewSettings();
-  else { if (location.hash && location.hash !== '#/') history.replaceState(null, '', '#/'); v.innerHTML = viewHome(); }
+  const [view, a, b] = location.hash.replace(/^#\/?/, '').split('/');
+  let key, html;
+  if (!license) { key = 'lock'; html = viewLock(); }
+  else if (view === 'k' && getClass(a)) { key = 'k' + a; html = viewClass(getClass(a)); }
+  else if (view === 's' && getClass(a) && getClass(a).students.find(s => s.id === b)) { key = 's' + b; html = viewStudent(getClass(a), b); }
+  else if (view === 'einstellungen') { key = 'set'; html = viewSettings(); }
+  else {
+    if (location.hash && location.hash !== '#/') history.replaceState(null, '', '#/');
+    key = 'home'; html = viewHome();
+  }
+  v.innerHTML = html;
+  if (key !== lastKey) { v.classList.remove('enter'); void v.offsetWidth; v.classList.add('enter'); lastKey = key; }
+  onScroll();
 }
-window.addEventListener('hashchange', () => { render(); $('main').scrollTop = 0; });
+window.addEventListener('hashchange', () => { main.scrollTop = 0; render(); });
 // Kein Zoomen per Zwei-Finger-Geste (iOS ignoriert user-scalable=no)
 ['gesturestart', 'gesturechange', 'gestureend'].forEach(t => document.addEventListener(t, e => e.preventDefault(), { passive: false }));
+
 /* ---------- Startseite ---------- */
 function viewHome() {
-  setHeader('Klassenbuch', null, { icon: 'gear', a: 'goSettings', label: 'Einstellungen' });
+  setHeader({ title: 'Klassen', act: { icon: 'gear', a: 'goSettings', label: 'Einstellungen' } });
+  const hero = `<div class="hero"><div class="eyebrow">${esc(fmtDayHead(today()))}</div><h1>Klassen</h1></div>`;
   if (!data.classes.length) {
-    return `<div class="empty"><p>Noch keine Klasse angelegt.</p>
-      <div class="stack"><button class="btn primary" data-a="importAny">Schülerliste importieren</button>
-      <button class="btn" data-a="addClass">Klasse selbst anlegen</button></div>
-      <p class="hint">WebUntis-Export (Excel oder CSV) – Klassen werden automatisch angelegt. Auch Datensicherungen lassen sich hier einlesen.</p></div>`;
+    return hero + `<div class="card empty">
+      <img class="empty-logo" src="icon-192.png" alt="">
+      <h2>Willkommen</h2>
+      <p>Importiere deine Schülerliste aus WebUntis – die Klassen werden automatisch angelegt.</p>
+      <div class="stack">
+        <button class="btn primary" data-a="importAny">${ICON.upload} Schülerliste importieren</button>
+        <button class="btn ghost" data-a="addClass">Klasse selbst anlegen</button>
+      </div></div>`;
   }
-  const items = [...data.classes].sort(byName).map(c => `
-    <li><a class="item" href="#/k/${c.id}"><span class="grow">${esc(c.name)}</span>
-    <span class="muted">${c.students.length} ${c.students.length === 1 ? 'Schüler:in' : 'Schüler:innen'}</span>${ICON.chev}</a></li>`).join('');
-  return `<ul class="list">${items}</ul>
-    <div class="actions-row"><button class="btn ghost" data-a="addClass">${ICON.plus} Neue Klasse</button>
-    <button class="btn ghost" data-a="importAny">Importieren</button></div>`;
+  const lastOf = cid => data.entries.reduce((m, e) => e.c === cid && e.d > m ? e.d : m, '');
+  const items = [...data.classes].sort(byName).map(c => {
+    const last = lastOf(c.id);
+    return `<a class="citem" href="#/k/${c.id}">
+      <span class="ctile ${avc(c.name)}">${esc(shortClass(c.name))}</span>
+      <span class="cbody"><span class="ctitle">${esc(c.name)}</span>
+      <span class="csub">${plural(c.students.length, 'Schüler:in', 'Schüler:innen')}${last ? ' · zuletzt ' + relDay(last) : ''}</span></span>${ICON.chev}</a>`;
+  }).join('');
+  return hero + `<div class="card">${items}</div>
+    <div class="pill-row">
+      <button class="btn secondary" data-a="addClass">${ICON.plus} Neue Klasse</button>
+      <button class="btn secondary" data-a="importAny">${ICON.upload} Importieren</button>
+    </div>`;
 }
 
 /* ---------- Klasse ---------- */
 function viewClass(c) {
-  setHeader(c.name, '#/', { icon: 'more', a: 'classMenu', label: 'Klassenmenü' });
+  setHeader({ title: c.name, back: '#/', backLabel: 'Klassen', act: { icon: 'more', a: 'classMenu', label: 'Klassenmenü' } });
+  const hero = `<div class="hero"><div class="eyebrow">Klasse</div><h1>${esc(c.name)}</h1>
+    <div class="sub">${plural(c.students.length, 'Schüler:in', 'Schüler:innen')}</div></div>`;
   if (!c.students.length) {
-    return `<div class="empty"><p>Diese Klasse hat noch keine Schüler:innen.</p>
-      <div class="stack"><button class="btn primary" data-a="addStudents">Namen eingeben</button>
-      <button class="btn" data-a="importStudents">Liste importieren</button></div>
-      <p class="hint">WebUntis-Export, Excel (.xlsx) oder CSV.</p></div>`;
+    return hero + `<div class="card empty">
+      <h2>Noch niemand da</h2>
+      <p>Füge Schüler:innen hinzu – per Liste aus WebUntis oder von Hand.</p>
+      <div class="stack">
+        <button class="btn primary" data-a="importStudents">${ICON.upload} Liste importieren</button>
+        <button class="btn ghost" data-a="addStudents">Namen eintippen</button>
+      </div></div>`;
   }
   const seg = `<div class="seg">
     <button class="${ui.tab === 'e' ? 'on' : ''}" data-a="tab" data-v="e">Eintragen</button>
     <button class="${ui.tab === 'u' ? 'on' : ''}" data-a="tab" data-v="u">Übersicht</button></div>`;
-  return seg + (ui.tab === 'u' ? viewOverview(c) : viewEntry(c));
+  return hero + seg + (ui.tab === 'u' ? viewOverview(c) : viewEntry(c));
 }
 
 function viewEntry(c) {
-  const chips = Object.entries(TYPES).map(([k, t]) =>
-    `<button class="chip ${ui.type === k ? 'on' : ''}" data-a="type" data-v="${k}">${t.label}</button>`).join('');
+  const cats = Object.entries(TYPES).map(([k, t]) =>
+    `<button class="cat ${ui.type === k ? 'on' : ''}" data-a="type" data-v="${k}">${ICON[t.icon]}${t.label}</button>`).join('');
   const rows = [...c.students].sort(byName).map(s => rowHTML(c, s)).join('');
-  const bulk = ui.type === 'hu' ? `<div class="bulk"><button class="btn ghost" data-a="bulkHu">Alle übrigen ✓</button></div>` : '';
+  const bulk = ui.type === 'hu' ? `<div class="bulk"><button class="link" data-a="bulkHu">Alle übrigen ✓</button></div>` : '';
+  const back = ui.date !== today() ? `<div class="today-link"><button class="link" data-a="toToday">Zurück zu heute</button></div>` : '';
   return `
     <div class="datebar">
-      <button class="icon-btn" data-a="day" data-v="-1" aria-label="Vorheriger Tag">${ICON.left}</button>
-      <input type="date" id="date" value="${ui.date}" aria-label="Datum">
-      <button class="icon-btn" data-a="day" data-v="1" aria-label="Nächster Tag">${ICON.right}</button>
-    </div>
-    <div class="daylabel">${ui.date === today() ? 'Heute, ' : ''}${esc(fmtDayLong(ui.date))}</div>
-    <div class="chips">${chips}</div>${bulk}
-    <ul class="list">${rows}</ul>`;
+      <button class="dbtn" data-a="day" data-v="-1" aria-label="Vorheriger Tag">${ICON.left}</button>
+      <div class="datepill">
+        <span class="d1">${esc(dayWord(ui.date))}</span>
+        <span class="d2">${esc(dt(ui.date).toLocaleDateString('de-AT', { day: 'numeric', month: 'long', year: 'numeric' }))}</span>
+        <input type="date" id="date" value="${ui.date}" aria-label="Datum wählen">
+      </div>
+      <button class="dbtn" data-a="day" data-v="1" aria-label="Nächster Tag">${ICON.right}</button>
+    </div>${back}
+    <div class="cats">${cats}</div>${bulk}
+    <div class="card">${rows}</div>`;
 }
 
 function rowHTML(c, s) {
-  const cur = data.entries.find(e => e.c === c.id && e.s === s.id && e.d === ui.date && e.t === ui.type);
-  const btns = TYPES[ui.type].vals.map(([v, label, cls]) =>
-    `<button class="v ${cls} ${cur && cur.v === v ? 'on' : ''}" data-a="mark" data-s="${s.id}" data-v="${v}" aria-label="${esc(TYPES[ui.type].label + ' ' + label)}">${label}</button>`).join('');
-  return `<li class="row" data-row="${s.id}"><a class="name" href="#/s/${c.id}/${s.id}">${esc(s.name)}</a><div class="vals">${btns}</div></li>`;
+  const t = TYPES[ui.type];
+  const todays = data.entries.filter(e => e.c === c.id && e.s === s.id && e.d === ui.date && e.t === ui.type);
+  let meta = '', btns;
+  if (t.multi) {
+    const p = todays.filter(e => e.v === 'p').length, n = todays.filter(e => e.v === 'n').length;
+    meta = (p ? `<span class="tagmini g">+${p}</span>` : '') + (n ? `<span class="tagmini b">−${n}</span>` : '');
+    btns = t.vals.map(([v, label, cls]) =>
+      `<button class="v add ${cls}" data-a="mark" data-s="${s.id}" data-v="${v}" aria-label="${esc(t.label + ' ' + (v === 'p' ? 'positiv' : 'negativ'))}">${label}</button>`).join('');
+  } else {
+    const cur = todays[0];
+    btns = t.vals.map(([v, label, cls]) =>
+      `<button class="v ${cls} ${cur && cur.v === v ? 'on' : ''}" data-a="mark" data-s="${s.id}" data-v="${v}" aria-label="${esc(t.label + ' ' + label)}">${glyph(label)}</button>`).join('');
+  }
+  return `<div class="srow" data-row="${s.id}">
+    <a class="sname-wrap" href="#/s/${c.id}/${s.id}"><span class="sname">${esc(s.name)}</span>${meta ? `<span class="smeta">${meta}</span>` : ''}</a>
+    <div class="vals">${btns}</div></div>`;
 }
 
 function stats(cid, sid) {
-  const es = entriesOf(cid, sid);
-  const st = { ma: { '+': 0, '~': 0, '-': 0 }, mu: [], sw: [], hu: { y: 0, n: 0 } };
-  for (const e of es) {
-    if (e.t === 'ma') st.ma[e.v] = (st.ma[e.v] || 0) + 1;
-    else if (e.t === 'hu') st.hu[e.v] = (st.hu[e.v] || 0) + 1;
+  const st = { ma: { '+': 0, '~': 0, '-': 0 }, mu: [], sw: [], hu: { y: 0, n: 0 }, vh: { p: 0, n: 0 }, total: 0 };
+  for (const e of entriesOf(cid, sid)) {
+    st.total++;
+    if (e.t === 'ma' || e.t === 'hu' || e.t === 'vh') st[e.t][e.v] = (st[e.t][e.v] || 0) + 1;
     else if (st[e.t]) st[e.t].push(+e.v);
   }
   const avg = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : null;
@@ -205,104 +288,152 @@ function stats(cid, sid) {
   return st;
 }
 const gradeCls = g => g == null ? '' : g < 2.5 ? 'g-t' : g < 4.5 ? 'm-t' : 'b-t';
+const dash = '<span class="chev">–</span>';
 
 function viewOverview(c) {
   const rows = [...c.students].sort(byName).map(s => {
     const st = stats(c.id, s.id);
     const huT = st.hu.y + st.hu.n;
-    return `<tr data-a="go" data-v="#/s/${c.id}/${s.id}">
-      <td>${esc(s.name)}</td>
-      <td><span class="ma"><span class="g-t">${st.ma['+']}</span><span class="m-t">${st.ma['~']}</span><span class="b-t">${st.ma['-']}</span></span></td>
-      <td class="${gradeCls(st.muAvg)}">${st.muAvg == null ? '–' : fmtNum(st.muAvg)}</td>
-      <td class="${gradeCls(st.swAvg)}">${st.swAvg == null ? '–' : fmtNum(st.swAvg)}</td>
-      <td>${huT ? `${st.hu.y}/${huT}` : '–'}</td></tr>`;
+    return `<a class="orow" href="#/s/${c.id}/${s.id}">
+      <div class="otop"><span class="av ${avc(s.name)}">${esc(initials(s.name))}</span><span class="oname">${esc(s.name)}</span>${ICON.chev}</div>
+      <div class="metrics">
+        <div class="m"><span class="ml">Mitarbeit</span><span class="mv"><span class="g-t">${st.ma['+']}</span><span class="m-t">${st.ma['~']}</span><span class="b-t">${st.ma['-']}</span></span></div>
+        <div class="m"><span class="ml">Mündl.</span><span class="mv ${gradeCls(st.muAvg)}">${st.muAvg == null ? dash : fmtNum(st.muAvg)}</span></div>
+        <div class="m"><span class="ml">Schriftl.</span><span class="mv ${gradeCls(st.swAvg)}">${st.swAvg == null ? dash : fmtNum(st.swAvg)}</span></div>
+        <div class="m"><span class="ml">HÜ</span><span class="mv">${huT ? `${st.hu.y}/${huT}` : dash}</span></div>
+        <div class="m"><span class="ml">Verhalten</span><span class="mv"><span class="g-t">${st.vh.p}</span><span class="b-t">${st.vh.n}</span></span></div>
+      </div></a>`;
   }).join('');
-  return `<div class="tbl-wrap"><table class="tbl">
-    <thead><tr><th>Name</th><th>+ ~ −</th><th>Mü</th><th>Schr</th><th>HÜ</th></tr></thead>
-    <tbody>${rows}</tbody></table></div>
-    <p class="legend">+ ~ − = Mitarbeit · Mü/Schr = Notenschnitt der Wiederholungen · HÜ = gebracht/gesamt</p>
-    <div class="stack filter"><button class="btn" data-a="exportOverview">Übersicht exportieren (CSV)</button></div>`;
+  return `<div class="card">${rows}</div>
+    <p class="legend">Farben: <span class="g-t">positiv</span> · <span class="m-t">neutral</span> · <span class="b-t">negativ</span>. Mündl./Schriftl. zeigen den Notenschnitt der Wiederholungen, HÜ „gebracht / gesamt“.</p>
+    <button class="btn secondary block" data-a="exportOverview">${ICON.download} Übersicht exportieren</button>`;
 }
 
 /* ---------- Schüler:in ---------- */
 function viewStudent(c, sid) {
   const s = c.students.find(x => x.id === sid);
-  setHeader(s.name, '#/k/' + c.id, { icon: 'more', a: 'studentMenu', label: 'Menü' });
+  setHeader({ title: s.name, back: '#/k/' + c.id, backLabel: c.name, act: { icon: 'more', a: 'studentMenu', label: 'Menü' } });
   const st = stats(c.id, sid);
   const huT = st.hu.y + st.hu.n;
+  const lastVh = entriesOf(c.id, sid).filter(e => e.t === 'vh').sort((a, b) => b.d.localeCompare(a.d))[0];
   const tiles = `<div class="tiles">
-    <div class="tile"><div class="k">Mitarbeit</div><div class="val"><span class="ma"><span class="g-t">+${st.ma['+']}</span><span class="m-t">~${st.ma['~']}</span><span class="b-t">−${st.ma['-']}</span></span></div></div>
+    <div class="tile"><div class="k">Mitarbeit</div><div class="val"><span class="g-t">+${st.ma['+']}</span><span class="m-t">~${st.ma['~']}</span><span class="b-t">−${st.ma['-']}</span></div></div>
     <div class="tile"><div class="k">Hausübungen</div><div class="val">${huT ? `${st.hu.y}/${huT}` : '–'}</div><div class="sub">${st.hu.n ? `${st.hu.n}× nicht gebracht` : huT ? 'immer gebracht' : 'noch keine'}</div></div>
-    <div class="tile"><div class="k">Mündlich Ø</div><div class="val ${gradeCls(st.muAvg)}">${st.muAvg == null ? '–' : fmtNum(st.muAvg)}</div><div class="sub">${st.mu.length ? st.mu.join(', ') : 'noch keine'}</div></div>
-    <div class="tile"><div class="k">Schriftlich Ø</div><div class="val ${gradeCls(st.swAvg)}">${st.swAvg == null ? '–' : fmtNum(st.swAvg)}</div><div class="sub">${st.sw.length ? st.sw.join(', ') : 'noch keine'}</div></div>
+    <div class="tile"><div class="k">Mündlich Ø</div><div class="val ${gradeCls(st.muAvg)}">${st.muAvg == null ? '–' : fmtNum(st.muAvg)}</div><div class="sub">${st.mu.length ? 'Noten: ' + st.mu.join(', ') : 'noch keine'}</div></div>
+    <div class="tile"><div class="k">Schriftlich Ø</div><div class="val ${gradeCls(st.swAvg)}">${st.swAvg == null ? '–' : fmtNum(st.swAvg)}</div><div class="sub">${st.sw.length ? 'Noten: ' + st.sw.join(', ') : 'noch keine'}</div></div>
+    <div class="tile"><div class="k">Verhalten</div><div class="val"><span class="g-t">+${st.vh.p}</span><span class="b-t">−${st.vh.n}</span></div><div class="sub">${lastVh ? 'zuletzt ' + relDay(lastVh.d) : 'noch nichts notiert'}</div></div>
+    <div class="tile"><div class="k">Einträge</div><div class="val">${st.total}</div><div class="sub">insgesamt</div></div>
   </div>`;
-  const chips = [['all', 'Alle'], ...Object.entries(TYPES).map(([k, t]) => [k, t.label])].map(([k, l]) =>
-    `<button class="chip ${ui.filter === k ? 'on' : ''}" data-a="filter" data-v="${k}">${l}</button>`).join('');
+  const chips = [['all', 'Alle', null], ...Object.entries(TYPES).map(([k, t]) => [k, t.label, t.icon])].map(([k, l, ic]) =>
+    `<button class="cat ${ui.filter === k ? 'on' : ''}" data-a="filter" data-v="${k}">${ic ? ICON[ic] : ''}${l}</button>`).join('');
   const es = entriesOf(c.id, sid).filter(e => ui.filter === 'all' || e.t === ui.filter)
     .sort((a, b) => b.d.localeCompare(a.d) || a.t.localeCompare(b.t));
-  const list = es.length ? `<ul class="list">${es.map(e => {
-    const [, label, cls] = valInfo(e.t, e.v);
-    return `<li class="entry"><span class="date">${esc(fmtDay(e.d))}</span><span class="type">${TYPES[e.t].long}</span>
-      <span class="badge ${cls}">${label}</span><button class="del" data-a="delEntry" data-v="${e.id}" aria-label="Eintrag löschen">×</button></li>`;
-  }).join('')}</ul>` : `<p class="hint">Keine Einträge.</p>`;
-  return `${tiles}<div class="chips filter">${chips}</div>${list}`;
+  let list = '';
+  if (!es.length) list = `<div class="nothing">Keine Einträge</div>`;
+  else {
+    const byDay = new Map();
+    es.forEach(e => { if (!byDay.has(e.d)) byDay.set(e.d, []); byDay.get(e.d).push(e); });
+    for (const [d, items] of byDay) {
+      list += `<div class="dayh">${esc(dayWord(d) === 'Heute' ? 'Heute' : fmtDayHead(d))}</div><div class="card">${items.map(e => {
+        const [, label, cls] = valInfo(e.t, e.v);
+        const t = TYPES[e.t] || { long: e.t, icon: 'info' };
+        const title = e.t === 'vh' ? (e.v === 'p' ? 'Positives Verhalten' : 'Negatives Verhalten') : t.long;
+        return `<div class="erow"><span class="eicon ${cls}">${ICON[e.t === 'vh' && e.v === 'n' ? 'frown' : t.icon]}</span>
+          <div class="etext"><div class="etitle">${esc(title)}</div>${e.n ? `<div class="enote">${esc(e.n)}</div>` : ''}</div>
+          ${e.t === 'vh' ? '' : `<span class="badge ${cls}">${glyph(label)}</span>`}
+          <button class="del" data-a="delEntry" data-v="${e.id}" aria-label="Eintrag löschen">${ICON.close}</button></div>`;
+      }).join('')}</div>`;
+    }
+  }
+  return `<div class="phero"><span class="av lg ${avc(s.name)}">${esc(initials(s.name))}</span>
+      <div><div class="eyebrow">${esc(c.name)}</div><h1>${esc(s.name)}</h1></div></div>
+    <button class="btn secondary block" data-a="vhStudent">${ICON.smile} Verhalten notieren</button>
+    ${tiles}
+    <div class="cats filters">${chips}</div>
+    ${list}`;
 }
 
 /* ---------- Einstellungen ---------- */
 function viewSettings() {
-  setHeader('Einstellungen', '#/');
-  const exp = license.info.x ? 'gültig bis ' + fmtDayLong(license.info.x) : 'unbefristet';
-  return `
-    <div class="section-title">Datensicherung</div>
-    <ul class="list">
-      <li><button class="item link-btn" data-a="exportBackup"><span class="grow">Sicherung exportieren</span>${ICON.chev}</button></li>
-      <li><button class="item link-btn" data-a="importBackup"><span class="grow">Sicherung importieren</span>${ICON.chev}</button></li>
-    </ul>
-    <p class="hint">Alle Daten liegen nur auf diesem Gerät. Exportiere regelmäßig eine Sicherung – z. B. in die Dateien-App oder auf einen USB-Stick.</p>
+  setHeader({ title: 'Einstellungen', back: '#/', backLabel: 'Klassen' });
+  const exp = license.info.x ? 'bis ' + dt(license.info.x).toLocaleDateString('de-AT') : 'unbefristet';
+  return `<div class="hero"><h1>Einstellungen</h1></div>
+    <div class="section">Datensicherung</div>
+    <div class="card">
+      <button class="lrow" data-a="exportBackup"><span class="licon">${ICON.download}</span><span class="grow">Sicherung exportieren</span>${ICON.chev}</button>
+      <button class="lrow" data-a="importBackup"><span class="licon">${ICON.upload}</span><span class="grow">Sicherung importieren</span>${ICON.chev}</button>
+    </div>
+    <p class="fine">Alle Daten liegen nur auf diesem Gerät. Exportiere regelmäßig eine Sicherung, z. B. in die Dateien-App oder auf einen USB-Stick.</p>
 
-    <div class="section-title">Lizenz</div>
-    <ul class="list"><li class="item"><span class="grow">${esc(license.info.n)}</span><span class="muted">${esc(exp)}</span></li></ul>
+    <div class="section">Lizenz</div>
+    <div class="card"><div class="lrow static"><span class="licon">${ICON.key}</span><span class="grow">${esc(license.info.n)}</span><span class="muted">${esc(exp)}</span></div></div>
 
-    <div class="section-title">Datenschutz</div>
-    <ul class="list"><li class="item"><span class="grow">Die App sendet keine Daten ins Internet. Es gibt kein Konto, keine Cloud und keine Analyse.</span></li></ul>
+    <div class="section">Datenschutz</div>
+    <div class="card"><div class="lrow static"><span class="licon">${ICON.shield}</span><span class="grow">Keine Cloud, kein Konto, keine Analyse. Die App sendet keine Daten ins Internet.</span></div></div>
 
-    <div class="section-title">Gefahrenbereich</div>
-    <ul class="list"><li><button class="item link-btn danger" data-a="wipe"><span class="grow">Alle Daten löschen</span></button></li></ul>
-    <p class="hint">Version ${APP_VERSION}</p>`;
+    <div class="section">Daten</div>
+    <div class="card"><button class="lrow danger" data-a="wipe"><span class="licon">${ICON.trash}</span><span class="grow">Alle Daten löschen</span></button></div>
+    <p class="fine center">Klassenbuch · Version ${APP_VERSION}</p>`;
 }
 
-/* ---------- Dialoge ---------- */
+/* ---------- Sheets ---------- */
 function modal(o) {
   return new Promise(res => {
     const d = $('#dlg');
     const field = o.input ? `<input name="v" value="${esc(o.value || '')}" placeholder="${esc(o.placeholder || '')}" autocomplete="off">`
-      : o.textarea ? `<textarea name="v" rows="8" placeholder="${esc(o.placeholder || '')}">${esc(o.value || '')}</textarea>` : '';
-    const opts = o.options ? o.options.map(([k, l, dan]) => `<button value="${k}" class="opt${dan ? ' danger' : ''}">${esc(l)}</button>`).join('') : '';
-    d.innerHTML = `<form method="dialog" class="sheet">
-      ${o.title ? `<h3>${esc(o.title)}</h3>` : ''}${o.text ? `<p>${esc(o.text)}</p>` : ''}${field}<div>${opts}</div>
-      <div class="row-btns">${o.options ? '' : `<button value="ok" class="btn ${o.danger ? 'danger fill' : 'primary'}">${esc(o.ok || 'OK')}</button>`}
-      <button value="" class="btn ghost" formnovalidate>${esc(o.cancel || 'Abbrechen')}</button></div></form>`;
+      : o.textarea ? `<textarea name="v" rows="7" placeholder="${esc(o.placeholder || '')}">${esc(o.value || '')}</textarea>` : '';
+    const opts = o.options ? `<div class="opts">${o.options.map(([k, l, dan]) => `<button value="${k}" class="opt${dan ? ' danger' : ''}">${esc(l)}</button>`).join('')}</div>` : '';
+    d.innerHTML = `<div class="grab"></div><form method="dialog" class="sheet">
+      ${o.title ? `<h3>${esc(o.title)}</h3>` : ''}${o.text ? `<p class="stext">${esc(o.text)}</p>` : ''}
+      ${o.body || ''}${field}${opts}
+      <div class="btns">${o.options ? '' : `<button value="ok" class="btn ${o.danger ? 'danger' : 'primary'} block">${esc(o.ok || 'OK')}</button>`}
+      <button value="" class="btn ghost block" formnovalidate>${esc(o.cancel || 'Abbrechen')}</button></div></form>`;
     let done = false;
     const finish = r => {
       if (done) return; done = true;
       const f = d.querySelector('[name=v]');
-      res(o.options ? (r || null) : r === 'ok' ? (f ? f.value : true) : null);
+      res(o.options ? (r || null) : r === 'ok' ? (o.collect ? o.collect(d) : f ? f.value : true) : null);
       if (d.open) d.close();
     };
     d.querySelector('form').addEventListener('submit', e => { e.preventDefault(); finish(e.submitter ? e.submitter.value : 'ok'); });
     d.onclose = () => finish('');
+    if (o.mount) o.mount(d);
     d.showModal();
+    d.scrollTop = 0;
     const f = d.querySelector('[name=v]');
-    if (f) setTimeout(() => f.focus(), 60);
+    if (f) setTimeout(() => f.focus(), 80);
   });
 }
 $('#dlg').addEventListener('click', e => { if (e.target === e.currentTarget) e.currentTarget.close(); });
+
+function behaviorSheet(name, start) {
+  let pol = start === 'n' ? 'n' : 'p';
+  const sel = new Set();
+  const tagsHTML = () => VH_TAGS[pol].map(t => `<button type="button" class="tag ${sel.has(t) ? 'on ' + (pol === 'p' ? 'g' : 'b') : ''}" data-tag="${esc(t)}">${esc(t)}</button>`).join('');
+  return modal({
+    title: 'Verhalten', text: name, ok: 'Speichern',
+    body: `<div class="seg pol"><button type="button" data-pol="p">Positiv</button><button type="button" data-pol="n">Negativ</button></div>
+      <div class="tags"></div>
+      <textarea name="note" rows="2" placeholder="Notiz (optional)"></textarea>`,
+    mount(d) {
+      const paint = () => {
+        d.querySelectorAll('[data-pol]').forEach(b => b.className = b.dataset.pol === pol ? 'on ' + (pol === 'p' ? 'g' : 'b') : '');
+        d.querySelector('.tags').innerHTML = tagsHTML();
+      };
+      d.querySelector('.pol').addEventListener('click', e => { const b = e.target.closest('[data-pol]'); if (!b || b.dataset.pol === pol) return; pol = b.dataset.pol; sel.clear(); paint(); });
+      d.querySelector('.tags').addEventListener('click', e => { const b = e.target.closest('[data-tag]'); if (!b) return; const t = b.dataset.tag; sel.has(t) ? sel.delete(t) : sel.add(t); paint(); });
+      paint();
+    },
+    collect(d) { return { v: pol, n: [...sel, d.querySelector('[name=note]').value.trim()].filter(Boolean).join(' · ') }; }
+  });
+}
 
 let toastTimer;
 function toast(msg) {
   const t = $('#toast'); t.textContent = msg; t.classList.add('show');
   clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 2600);
 }
+const haptic = () => { try { if (navigator.vibrate) navigator.vibrate(8); } catch { } };
 
 /* ---------- Dateien ---------- */
 function pickFile() {
@@ -328,7 +459,7 @@ async function saveFile(name, type, text) {
   const a = document.createElement('a'); a.href = url; a.download = name;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 4000);
-  toast('Datei gespeichert: ' + name);
+  toast('Gespeichert: ' + name);
 }
 const safeName = s => s.replace(/[^\wäöüÄÖÜß.-]+/g, '_');
 
@@ -461,7 +592,6 @@ function parseStudents(rows) {
   }
   return { groups, hasClass: iK >= 0, total };
 }
-const namesFromRows = rows => [...parseStudents(rows).groups.values()].flat();
 
 function addNames(c, names) {
   const have = new Set(c.students.map(s => s.name.toLowerCase()));
@@ -476,19 +606,19 @@ function addNames(c, names) {
 /* ---------- Aktionen ---------- */
 const currentClass = () => { const [v, a] = location.hash.replace(/^#\/?/, '').split('/'); return (v === 'k' || v === 's') ? getClass(a) : null; };
 const currentStudentId = () => location.hash.replace(/^#\/?/, '').split('/')[2];
+const errMsg = e => e && e.message ? e.message : 'Datei konnte nicht gelesen werden';
 
 const actions = {
   async activate() {
     const res = await verifyLicense($('#lic').value);
-    if (res.error) return viewLock(res.error);
-    license = res; lsSet('kb.license', res.code); await DB.set('license', res.code);
+    if (res.error) { lockMsg = res.error; return render(); }
+    lockMsg = ''; license = res; lsSet('kb.license', res.code); await DB.set('license', res.code);
     await loadData(); render(); toast('Freigeschaltet für ' + res.info.n);
   },
   goSettings() { location.hash = '#/einstellungen'; },
-  go(d) { location.hash = d.v; },
 
   async addClass() {
-    const name = (await modal({ title: 'Neue Klasse', input: true, placeholder: 'z. B. 3B Mathematik', ok: 'Anlegen' }) || '').trim();
+    const name = (await modal({ title: 'Neue Klasse', input: true, placeholder: 'z. B. 3B', ok: 'Anlegen' }) || '').trim();
     if (!name) return;
     const c = { id: uid(), name, students: [] };
     data.classes.push(c); await save(); location.hash = '#/k/' + c.id;
@@ -497,8 +627,8 @@ const actions = {
     const c = currentClass(); if (!c) return;
     const k = await modal({
       title: c.name, options: [
-        ['add', 'Schüler:innen hinzufügen'], ['imp', 'Liste importieren (WebUntis, Excel, CSV)'],
-        ['ov', 'Übersicht exportieren (CSV)'], ['all', 'Alle Einträge exportieren (CSV)'],
+        ['add', 'Schüler:innen eintippen'], ['imp', 'Liste importieren (WebUntis, Excel, CSV)'],
+        ['ov', 'Übersicht exportieren'], ['all', 'Alle Einträge exportieren'],
         ['ren', 'Klasse umbenennen'], ['del', 'Klasse löschen', true]
       ], cancel: 'Schließen'
     });
@@ -511,7 +641,7 @@ const actions = {
       if (n) { c.name = n; await save(); render(); }
     }
     if (k === 'del') {
-      if (!await modal({ title: 'Klasse löschen?', text: `„${c.name}“ und alle Einträge werden gelöscht. Das kann nicht rückgängig gemacht werden.`, ok: 'Löschen', danger: true })) return;
+      if (!await modal({ title: 'Klasse löschen?', text: `„${c.name}“ und alle Einträge werden gelöscht. Das kann nicht rückgängig gemacht werden.`, ok: 'Klasse löschen', danger: true })) return;
       data.classes = data.classes.filter(x => x !== c);
       data.entries = data.entries.filter(e => e.c !== c.id);
       await save(); location.hash = '#/'; toast('Klasse gelöscht');
@@ -519,17 +649,16 @@ const actions = {
   },
   async addStudents() {
     const c = currentClass(); if (!c) return;
-    const txt = await modal({ title: 'Schüler:innen hinzufügen', text: 'Ein Name pro Zeile.', textarea: true, placeholder: 'Muster Anna\nBeispiel Ben', ok: 'Hinzufügen' });
+    const txt = await modal({ title: 'Schüler:innen eintippen', text: 'Ein Name pro Zeile.', textarea: true, placeholder: 'Huber Anna\nBauer Ben', ok: 'Hinzufügen' });
     if (!txt) return;
     const n = addNames(c, txt.split(/\r?\n/).map(x => x.replace(/[;,\t]+/g, ' ').replace(/\s+/g, ' ').trim()).filter(Boolean));
-    await save(); render(); toast(n + ' hinzugefügt');
+    await save(); render(); toast(plural(n, 'Person', 'Personen') + ' hinzugefügt');
   },
   async importStudents() {
     const c = currentClass(); if (!c) return;
     const f = await pickFile(); if (!f) return;
     try {
       const p = parseStudents(await readTable(f));
-      // Enthält die Datei mehrere Klassen, nur die passende übernehmen
       let names = [...p.groups.values()].flat();
       if (p.hasClass && p.groups.size > 1) {
         const match = [...p.groups.keys()].find(k => k.toLowerCase() === c.name.toLowerCase() || c.name.toLowerCase().startsWith(k.toLowerCase() + ' '));
@@ -538,7 +667,7 @@ const actions = {
       if (!names.length) return toast('Keine Namen in der Datei gefunden');
       const n = addNames(c, names); await save(); render();
       toast(`${n} importiert${names.length - n ? `, ${names.length - n} schon vorhanden` : ''}`);
-    } catch (e) { toast(e && e.message ? e.message : 'Datei konnte nicht gelesen werden'); }
+    } catch (e) { toast(errMsg(e)); }
   },
 
   // Startseite: eine Datei für alles – WebUntis/Excel/CSV-Listen oder Datensicherung
@@ -549,7 +678,7 @@ const actions = {
       const head = new Uint8Array(await f.slice(0, 4).arrayBuffer());
       if (head[0] === 0x7B || /\.json$/i.test(f.name)) return actions.importBackup(f);
       rows = await readTable(f);
-    } catch (e) { return toast(e && e.message ? e.message : 'Datei konnte nicht gelesen werden'); }
+    } catch (e) { return toast(errMsg(e)); }
     const p = parseStudents(rows);
     if (!p.total) return toast('Keine Namen in der Datei gefunden');
 
@@ -566,7 +695,7 @@ const actions = {
     groups.sort((a, b) => a[0].localeCompare(b[0], 'de', { numeric: true }));
 
     const findClass = k => data.classes.find(c => c.name.toLowerCase() === k.toLowerCase());
-    const summary = groups.map(([k, n]) => `${k}: ${n.length} ${findClass(k) ? '(wird ergänzt)' : '(neu)'}`).join('\n');
+    const summary = groups.map(([k, n]) => `${k}: ${plural(n.length, 'Person', 'Personen')} ${findClass(k) ? '(wird ergänzt)' : '(neu)'}`).join('\n');
     if (!await modal({ title: groups.length === 1 ? 'Klasse importieren' : `${groups.length} Klassen importieren`, text: summary, ok: 'Importieren' })) return;
 
     let added = 0, created = 0, last = null;
@@ -576,26 +705,39 @@ const actions = {
       added += addNames(c, names); last = c;
     }
     await save();
-    toast(`${created ? created + (created === 1 ? ' Klasse' : ' Klassen') + ' angelegt, ' : ''}${added} Schüler:innen importiert`);
+    toast(`${created ? plural(created, 'neue Klasse', 'neue Klassen') + ' · ' : ''}${added} importiert`);
     if (groups.length === 1) location.hash = '#/k/' + last.id; else { location.hash = '#/'; render(); }
   },
 
   tab(d) { ui.tab = d.v; saveUi(); render(); },
   type(d) { ui.type = d.v; saveUi(); render(); },
   filter(d) { ui.filter = d.v; saveUi(); render(); },
-  day(d) { const x = new Date(ui.date + 'T12:00'); x.setDate(x.getDate() + +d.v); ui.date = isoDate(x); render(); },
+  day(d) { ui.date = shiftDay(ui.date, +d.v); render(); },
+  toToday() { ui.date = today(); render(); },
 
   async mark(d) {
     const c = currentClass(); if (!c) return;
-    const i = data.entries.findIndex(e => e.c === c.id && e.s === d.s && e.d === ui.date && e.t === ui.type);
-    if (i >= 0 && data.entries[i].v === d.v) data.entries.splice(i, 1);
-    else if (i >= 0) data.entries[i].v = d.v;
-    else data.entries.push({ id: uid(), c: c.id, s: d.s, d: ui.date, t: ui.type, v: d.v });
-    const s = c.students.find(x => x.id === d.s);
-    const li = document.querySelector(`[data-row="${d.s}"]`);
-    if (li && s) li.outerHTML = rowHTML(c, s);
-    if (navigator.vibrate) navigator.vibrate(8);
+    const s = c.students.find(x => x.id === d.s); if (!s) return;
+    if (TYPES[ui.type].multi) {
+      const r = await behaviorSheet(s.name, d.v); if (!r) return;
+      data.entries.push({ id: uid(), c: c.id, s: s.id, d: ui.date, t: ui.type, v: r.v, n: r.n });
+      toast(r.v === 'p' ? 'Positives Verhalten notiert' : 'Verhalten notiert');
+    } else {
+      const i = data.entries.findIndex(e => e.c === c.id && e.s === d.s && e.d === ui.date && e.t === ui.type);
+      if (i >= 0 && data.entries[i].v === d.v) data.entries.splice(i, 1);
+      else if (i >= 0) data.entries[i].v = d.v;
+      else data.entries.push({ id: uid(), c: c.id, s: d.s, d: ui.date, t: ui.type, v: d.v });
+    }
+    const row = document.querySelector(`[data-row="${d.s}"]`);
+    if (row) row.outerHTML = rowHTML(c, s);
+    haptic();
     await save();
+  },
+  async vhStudent() {
+    const c = currentClass(); const s = c && c.students.find(x => x.id === currentStudentId()); if (!s) return;
+    const r = await behaviorSheet(s.name, 'p'); if (!r) return;
+    data.entries.push({ id: uid(), c: c.id, s: s.id, d: today(), t: 'vh', v: r.v, n: r.n });
+    await save(); render(); toast('Verhalten notiert');
   },
   async bulkHu() {
     const c = currentClass(); if (!c) return;
@@ -609,8 +751,8 @@ const actions = {
   },
 
   async studentMenu() {
-    const c = currentClass(); const sid = currentStudentId(); const s = c && c.students.find(x => x.id === sid); if (!s) return;
-    const k = await modal({ title: s.name, options: [['ren', 'Umbenennen'], ['del', 'Aus Klasse entfernen', true]], cancel: 'Schließen' });
+    const c = currentClass(); const s = c && c.students.find(x => x.id === currentStudentId()); if (!s) return;
+    const k = await modal({ title: s.name, options: [['ren', 'Umbenennen'], ['del', 'Aus der Klasse entfernen', true]], cancel: 'Schließen' });
     if (k === 'ren') {
       const n = (await modal({ title: 'Umbenennen', input: true, value: s.name, ok: 'Speichern' }) || '').trim();
       if (n) { s.name = n; await save(); render(); }
@@ -624,28 +766,31 @@ const actions = {
   },
   async delEntry(d) {
     const e = data.entries.find(x => x.id === d.v); if (!e) return;
-    if (!await modal({ title: 'Eintrag löschen?', text: `${TYPES[e.t].long} vom ${fmtDay(e.d)}: ${valInfo(e.t, e.v)[1]}`, ok: 'Löschen', danger: true })) return;
+    const what = e.t === 'vh' ? (e.v === 'p' ? 'Positives Verhalten' : 'Negatives Verhalten') + (e.n ? ': ' + e.n : '')
+      : `${TYPES[e.t].long}: ${valInfo(e.t, e.v)[1]}`;
+    if (!await modal({ title: 'Eintrag löschen?', text: `${fmtDayLong(e.d)}\n${what}`, ok: 'Löschen', danger: true })) return;
     data.entries = data.entries.filter(x => x !== e); await save(); render();
   },
 
   exportOverview() {
     const c = currentClass(); if (!c) return;
-    const rows = [['Name', 'Mitarbeit +', 'Mitarbeit ~', 'Mitarbeit −', 'Ø Mündlich', 'Noten Mündlich', 'Ø Schriftlich', 'Noten Schriftlich', 'HÜ gebracht', 'HÜ nicht gebracht']];
+    const rows = [['Name', 'Mitarbeit +', 'Mitarbeit ~', 'Mitarbeit −', 'Ø Mündlich', 'Noten Mündlich', 'Ø Schriftlich', 'Noten Schriftlich', 'HÜ gebracht', 'HÜ nicht gebracht', 'Verhalten +', 'Verhalten −']];
     for (const s of [...c.students].sort(byName)) {
       const st = stats(c.id, s.id);
       rows.push([s.name, st.ma['+'], st.ma['~'], st.ma['-'],
         st.muAvg == null ? '' : fmtNum(st.muAvg), st.mu.join(' '),
-        st.swAvg == null ? '' : fmtNum(st.swAvg), st.sw.join(' '), st.hu.y, st.hu.n]);
+        st.swAvg == null ? '' : fmtNum(st.swAvg), st.sw.join(' '), st.hu.y, st.hu.n, st.vh.p, st.vh.n]);
     }
     saveFile(`Übersicht_${safeName(c.name)}_${today()}.csv`, 'text/csv', toCSV(rows));
   },
   exportEntries() {
     const c = currentClass(); if (!c) return;
     const names = Object.fromEntries(c.students.map(s => [s.id, s.name]));
-    const rows = [['Datum', 'Name', 'Kategorie', 'Wert']];
+    const rows = [['Datum', 'Name', 'Kategorie', 'Wert', 'Notiz']];
     entriesOf(c.id).filter(e => names[e.s]).sort((a, b) => a.d.localeCompare(b.d) || names[a.s].localeCompare(names[b.s], 'de'))
-      .forEach(e => rows.push([e.d.split('-').reverse().join('.'), names[e.s], TYPES[e.t].long,
-        e.t === 'hu' ? (e.v === 'y' ? 'gebracht' : 'nicht gebracht') : valInfo(e.t, e.v)[1]]));
+      .forEach(e => rows.push([e.d.split('-').reverse().join('.'), names[e.s], (TYPES[e.t] || { long: e.t }).long,
+        e.t === 'hu' ? (e.v === 'y' ? 'gebracht' : 'nicht gebracht') : e.t === 'vh' ? (e.v === 'p' ? 'positiv' : 'negativ') : valInfo(e.t, e.v)[1],
+        e.n || '']));
     saveFile(`Einträge_${safeName(c.name)}_${today()}.csv`, 'text/csv', toCSV(rows));
   },
   exportBackup() {
@@ -664,7 +809,7 @@ const actions = {
       if (!inc || !Array.isArray(inc.classes) || !Array.isArray(inc.entries)) throw 0;
     } catch { return toast('Das ist keine gültige Klassenbuch-Sicherung'); }
     const k = await modal({
-      title: 'Sicherung importieren', text: `${inc.classes.length} Klasse(n), ${inc.entries.length} Einträge.`,
+      title: 'Sicherung importieren', text: `${plural(inc.classes.length, 'Klasse', 'Klassen')}, ${plural(inc.entries.length, 'Eintrag', 'Einträge')}`,
       options: [['merge', 'Ergänzen (vorhandene Daten behalten)'], ['replace', 'Alles ersetzen', true]]
     });
     if (!k) return;
@@ -689,10 +834,14 @@ const actions = {
 };
 
 document.addEventListener('click', e => {
+  if (e.target.closest('dialog')) return; // Sheets verwalten ihre Klicks selbst
   const el = e.target.closest('[data-a]');
   if (!el || !actions[el.dataset.a]) return;
   e.preventDefault();
   actions[el.dataset.a](el.dataset, el);
+});
+document.addEventListener('click', e => {
+  if (e.target.id === 'date' && e.target.showPicker) { try { e.target.showPicker(); } catch { } }
 });
 document.addEventListener('change', e => {
   if (e.target.id === 'date' && e.target.value) { ui.date = e.target.value; render(); }
@@ -705,12 +854,12 @@ async function loadData() {
 }
 
 async function start() {
-  try { await DB.open(); } catch { $('#view').innerHTML = '<div class="empty"><p>Speicher nicht verfügbar. Bitte privaten Modus deaktivieren.</p></div>'; return; }
+  try { await DB.open(); } catch { $('#view').innerHTML = '<div class="nothing">Speicher nicht verfügbar. Bitte den privaten Modus deaktivieren.</div>'; return; }
   const code = (await DB.get('license').catch(() => null)) || lsGet('kb.license', null);
   if (code) {
     const res = await verifyLicense(code);
     if (!res.error) { license = res; await loadData(); }
-    else { render(); return viewLock(res.error); }
+    else lockMsg = res.error;
   }
   render();
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => { });
