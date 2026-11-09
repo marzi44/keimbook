@@ -245,6 +245,7 @@ main {
 .vals { display: flex; gap: 6px; flex: none; }
 .v {
   width: 40px; height: 40px; border-radius: 12px; padding: 0;
+  display: inline-grid; place-items: center; line-height: 1; font-variant-numeric: tabular-nums;
   border: 1px solid var(--line); background: var(--surface-2);
   font-size: 16px; font-weight: 650; color: var(--ink-2);
   transition: transform .08s, background .15s, color .15s, border-color .15s;
@@ -254,7 +255,10 @@ main {
 .v.on.m { background: var(--mid); border-color: var(--mid); color: var(--on-ink); }
 .v.on.b { background: var(--neg); border-color: var(--neg); color: var(--on-ink); }
 @media (prefers-color-scheme: light) { .v.on.g, .v.on.m, .v.on.b { color: #fff; } }
-.tl { display: inline-block; font-size: 1.2em; line-height: 1; transform: translateY(.2em); }
+.sym { display: block; }
+.digit { display: block; line-height: 1; }
+.symrow { display: inline-flex; align-items: center; gap: 3px; }
+.mini-seg button { display: inline-flex; align-items: center; justify-content: center; }
 .v.add.g { color: var(--pos); } .v.add.b { color: var(--neg); }
 @media (max-width: 370px) { .v { width: 36px; height: 36px; } .vals { gap: 5px; } .srow { padding-left: 14px; } }
 .bulk { display: flex; justify-content: flex-end; margin: -6px 0 8px; }
@@ -291,7 +295,7 @@ main {
 .etext { flex: 1; min-width: 0; }
 .etitle { font-size: 15px; font-weight: 500; }
 .enote { font-size: 14px; color: var(--ink-2); margin-top: 1px; overflow-wrap: anywhere; }
-.badge { min-width: 34px; height: 30px; padding: 0 9px; border-radius: 9px; display: inline-grid; place-items: center; font-weight: 700; font-size: 15px; }
+.badge { min-width: 34px; height: 30px; padding: 0 9px; border-radius: 9px; display: inline-grid; place-items: center; line-height: 1; font-weight: 700; font-size: 15px; font-variant-numeric: tabular-nums; }
 .badge.g { background: var(--pos-soft); color: var(--pos); }
 .badge.m { background: var(--mid-soft); color: var(--mid); }
 .badge.b { background: var(--neg-soft); color: var(--neg); }

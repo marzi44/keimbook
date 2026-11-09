@@ -8,7 +8,7 @@ const PUBLIC_KEY = {
   x: 'kHkzCWyGjuxGxGf_3AMH2F_MKEWEjH1hfCnBf7K1Imo',
   y: 'Fv556fMFzralLJTUqYxNxI68b9Fd4ctkLzgn07BzKj0'
 };
-const APP_VERSION = '2.2';
+const APP_VERSION = '2.3';
 
 const TYPES = {
   ma: { label: 'Mitarbeit', long: 'Mitarbeit', icon: 'spark', vals: [['+', '+', 'g'], ['~', '~', 'm'], ['-', '−', 'b']] },
@@ -22,7 +22,17 @@ const VH_TAGS = {
   n: ['Stört den Unterricht', 'Unaufmerksam', 'Material vergessen', 'Zu spät', 'Handy', 'Respektlos']
 };
 function grades() { return [['1', '1', 'g'], ['2', '2', 'g'], ['3', '3', 'm'], ['4', '4', 'm'], ['5', '5', 'b']]; }
-const glyph = l => l === '~' ? '<span class="tl">~</span>' : l;
+// Symbole als Vektorgrafik: dadurch sitzen +, ~, −, ✓ und ✗ in jeder Schrift exakt in der Mitte
+const SYM = {
+  '+': '<path d="M12 5.5v13M5.5 12h13"/>',
+  '−': '<path d="M5.5 12h13"/>',
+  '~': '<path d="M4.5 13.4c1.7-2.4 3.6-2.9 5.8-1.6l1.4.8c2.2 1.3 4.1.8 5.8-1.6"/>',
+  '✓': '<path d="M5.5 12.5l4.2 4.2 8.8-9.2"/>',
+  '✗': '<path d="M7 7l10 10M17 7L7 17"/>'
+};
+const glyph = (l, size = 17) => SYM[l]
+  ? `<svg class="sym" viewBox="0 0 24 24" width="${size}" height="${size}" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">${SYM[l]}</svg>`
+  : `<span class="digit">${l}</span>`;
 const valInfo = (t, v) => (SCALABLE.includes(t) ? [...SCALES.grade, ...SCALES.pm] : TYPES[t] ? TYPES[t].vals : []).find(x => x[0] === v) || [v, v, 'm'];
 
 /* ---------- Bewertung: Notenskala & Gewichtung (je Klasse) ---------- */
@@ -291,7 +301,7 @@ function rowHTML(c, s) {
     const p = todays.filter(e => e.v === 'p').length, n = todays.filter(e => e.v === 'n').length;
     meta = (p ? `<span class="tagmini g">+${p}</span>` : '') + (n ? `<span class="tagmini b">−${n}</span>` : '');
     btns = t.vals.map(([v, label, cls]) =>
-      `<button class="v add ${cls}" data-a="mark" data-s="${s.id}" data-v="${v}" aria-label="${esc(t.label + ' ' + (v === 'p' ? 'positiv' : 'negativ'))}">${label}</button>`).join('');
+      `<button class="v add ${cls}" data-a="mark" data-s="${s.id}" data-v="${v}" aria-label="${esc(t.label + ' ' + (v === 'p' ? 'positiv' : 'negativ'))}">${glyph(label)}</button>`).join('');
   } else {
     const cur = todays[0];
     const curV = cur ? (scaleOf(c, ui.type) === 'pm' ? toPm(cur.v) : ({ '+': '1', '~': '3', '-': '5' }[cur.v] || cur.v)) : null;
@@ -360,7 +370,7 @@ function viewRating(c) {
   const cf = cfg(c);
   const sum = Object.values(cf.weight).reduce((a, b) => a + b, 0);
   const scaleRows = SCALABLE.map(k => `<div class="lrow static"><span class="licon">${ICON[TYPES[k].icon]}</span><span class="grow">${TYPES[k].label}</span>
-      <div class="mini-seg"><button class="${cf.scale[k] === 'grade' ? 'on' : ''}" data-a="setScale" data-t="${k}" data-v="grade">1 – 5</button><button class="${cf.scale[k] === 'pm' ? 'on' : ''}" data-a="setScale" data-t="${k}" data-v="pm">+ ~ −</button></div></div>`).join('');
+      <div class="mini-seg"><button class="${cf.scale[k] === 'grade' ? 'on' : ''}" data-a="setScale" data-t="${k}" data-v="grade">1 – 5</button><button class="${cf.scale[k] === 'pm' ? 'on' : ''}" data-a="setScale" data-t="${k}" data-v="pm" aria-label="Plus, Welle, Minus"><span class="symrow">${glyph('+', 14)}${glyph('~', 14)}${glyph('−', 14)}</span></button></div></div>`).join('');
   const wRows = Object.keys(TYPES).map(k => {
     const w = cf.weight[k];
     return `<div class="lrow static"><span class="licon">${ICON[TYPES[k].icon]}</span><span class="grow">${TYPES[k].label}</span>
