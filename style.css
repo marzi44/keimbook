@@ -491,3 +491,42 @@ a.btn { text-decoration: none; }
 .sp-line.up { stroke: var(--pos); } .sp-line.down { stroke: var(--neg); }
 .nospark { flex: 1; font-size: 12.5px; color: var(--ink-3); }
 @media (max-width: 380px) { .otrend { margin-left: 0; } }
+
+/* ---------- Gruppe aus mehreren Klassen ---------- */
+.mt { margin-top: 10px; }
+.from {
+  display: inline-block; margin-left: 7px; padding: 1px 7px; border-radius: 6px; vertical-align: 1px;
+  background: var(--fill); color: var(--ink-2); font-size: 11.5px; font-weight: 650; letter-spacing: .01em;
+}
+.field {
+  width: 100%; height: 52px; padding: 0 16px; border: 1px solid var(--line); border-radius: 14px;
+  background: var(--surface); box-shadow: var(--shadow); font-size: 16px; outline: none;
+}
+.field:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.cmphead { display: flex; align-items: center; padding-right: 6px; }
+.pick {
+  display: flex; align-items: center; gap: 12px; width: 100%; border: 0; background: none; text-align: left;
+  padding: 12px 14px; min-height: 52px; font-size: 16px;
+}
+.pick.head { padding: 12px 8px 12px 14px; }
+.pick:active { background: var(--surface-2); }
+.pick .grow { flex: 1; min-width: 0; display: grid; }
+.pick.dup { opacity: .5; }
+.cmpcard > .pick { padding-left: 22px; }
+.ctile.sm { width: 38px; height: 38px; border-radius: 11px; font-size: 14px; }
+.chk {
+  width: 24px; height: 24px; border-radius: 50%; flex: none; display: grid; place-items: center;
+  border: 2px solid var(--line-2); color: #fff; transition: background .15s, border-color .15s;
+}
+.chk.on, .chk.some { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.chk i { width: 10px; height: 2.5px; border-radius: 2px; background: currentColor; }
+.exp { color: var(--ink-3); transition: transform .2s; }
+.exp.open { transform: rotate(180deg); }
+.lrow.toggle { margin-top: 14px; }
+.muted.block { display: block; margin-top: 1px; }
+.sticky-cta {
+  position: sticky; bottom: calc(-40px - env(safe-area-inset-bottom)); margin: 18px -4px 0; padding: 12px 4px calc(12px + env(safe-area-inset-bottom));
+  background: linear-gradient(to bottom, transparent, var(--bg) 30%);
+}
+.btn[disabled] { opacity: .45; pointer-events: none; }
+.hero .sub svg { vertical-align: -2px; }

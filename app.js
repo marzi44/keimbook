@@ -8,7 +8,7 @@ const PUBLIC_KEY = {
   x: 'kHkzCWyGjuxGxGf_3AMH2F_MKEWEjH1hfCnBf7K1Imo',
   y: 'Fv556fMFzralLJTUqYxNxI68b9Fd4ctkLzgn07BzKj0'
 };
-const APP_VERSION = '2.6';
+const APP_VERSION = '2.7';
 
 const TYPES = {
   ma: { label: 'Mitarbeit', long: 'Mitarbeit', icon: 'spark', vals: [['+', '+', 'g'], ['~', '~', 'm'], ['-', '−', 'b']] },
@@ -109,6 +109,9 @@ const ICON = {
   gear: svg('<circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>', 23, 1.7),
   more: '<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" fill="currentColor"><circle cx="5" cy="12" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="19" cy="12" r="1.9"/></svg>',
   plus: svg('<path d="M12 5v14M5 12h14"/>', 20, 2.2),
+  merge: svg('<circle cx="6.5" cy="6" r="2.2"/><circle cx="6.5" cy="18" r="2.2"/><circle cx="17.5" cy="12" r="2.2"/><path d="M6.5 8.2v7.6M8.6 6.6c4 .8 5.6 2.5 6.8 4.2M8.6 17.4c4-.8 5.6-2.5 6.8-4.2"/>', 19, 1.9),
+  check: svg('<path d="M6 12.5l4 4 8-8.5"/>', 15, 2.8),
+  down: svg('<path d="M6.5 9.5L12 15l5.5-5.5"/>', 18, 2.2),
   left: svg('<path d="M14.5 5.5L8 12l6.5 6.5"/>', 22, 2.2),
   right: svg('<path d="M9.5 5.5L16 12l-6.5 6.5"/>', 22, 2.2),
   chev: '<svg class="chev" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 5.5L16 12l-6.5 6.5"/></svg>',
@@ -230,6 +233,7 @@ function render() {
   else if (view === 'k' && getClass(a)) { key = 'k' + a; html = viewClass(getClass(a)); }
   else if (view === 's' && getClass(a) && getClass(a).students.find(s => s.id === b)) { key = 's' + b; html = viewStudent(getClass(a), b); }
   else if (view === 'b' && getClass(a)) { key = 'b' + a; html = viewRating(getClass(a)); }
+  else if (view === 'neu' && data.classes.length) { key = 'neu' + (a || ''); html = viewCompose(a ? getClass(a) : null); }
   else if (view === 'einstellungen') { key = 'set'; html = viewSettings(); }
   else {
     if (location.hash && location.hash !== '#/') history.replaceState(null, '', '#/');
@@ -270,13 +274,15 @@ function viewHome() {
     <div class="pill-row">
       <button class="btn secondary" data-a="addClass">${ICON.plus} Neue Klasse</button>
       <button class="btn secondary" data-a="importAny">${ICON.upload} Importieren</button>
-    </div>`;
+    </div>
+    ${data.classes.length > 1 ? `<button class="btn secondary block mt" data-a="goCompose">${ICON.merge} Gruppe aus mehreren Klassen</button>
+    <p class="fine center">Für Unterricht mit Kindern aus verschiedenen Klassen, z. B. Religion oder Wahlpflichtfächer.</p>` : ''}`;
 }
 
 /* ---------- Klasse ---------- */
 function viewClass(c) {
   setHeader({ title: c.name, back: '#/', backLabel: 'Klassen', act: { icon: 'more', a: 'classMenu', label: 'Klassenmenü' } });
-  const hero = `<div class="hero"><div class="eyebrow">Klasse</div><h1>${esc(c.name)}</h1>
+  const hero = `<div class="hero"><div class="eyebrow">${c.students.some(s => s.from) ? 'Gruppe' : 'Klasse'}</div><h1>${esc(c.name)}</h1>
     <div class="sub">${plural(c.students.length, 'Schüler:in', 'Schüler:innen')}${(() => { const n = c.students.filter(s => isRisk(stats(c, s.id))).length; return n ? ` · <span class="riskcount">${WARN} ${n} mit Note über 4</span>` : ''; })()}</div></div>`;
   if (!c.students.length) {
     return hero + `<div class="card empty">
@@ -329,7 +335,7 @@ function rowHTML(c, s) {
       `<button class="v ${cls} ${curV === v ? 'on' : ''}" data-a="mark" data-s="${s.id}" data-v="${v}" aria-label="${esc(t.label + ' ' + label)}">${glyph(label)}</button>`).join('');
   }
   return `<div class="srow${t.multi || valsFor(c, ui.type).length > 3 ? ' five' : ''}" data-row="${s.id}">
-    <a class="sname-wrap" href="#/s/${c.id}/${s.id}"><span class="sname">${isRisk(stats(c, s.id)) ? WARN : ''}${esc(s.name)}</span>${meta ? `<span class="smeta">${meta}</span>` : ''}</a>
+    <a class="sname-wrap" href="#/s/${c.id}/${s.id}"><span class="sname">${isRisk(stats(c, s.id)) ? WARN : ''}${esc(s.name)}${fromTag(s)}</span>${meta ? `<span class="smeta">${meta}</span>` : ''}</a>
     <div class="vals">${btns}</div></div>`;
 }
 
@@ -472,7 +478,7 @@ function viewOverview(c) {
   const rows = [...c.students].sort(byName).map(s => {
     const st = stats(c, s.id);
     return `<a class="orow" href="#/s/${c.id}/${s.id}">
-      <div class="otop"><span class="av ${avc(s.name)}">${esc(initials(s.name))}</span><span class="oname">${esc(s.name)}</span>${isRisk(st) ? WARN : ''}${ICON.chev}</div>
+      <div class="otop"><span class="av ${avc(s.name)}">${esc(initials(s.name))}</span><span class="oname">${esc(s.name)}${fromTag(s)}</span>${isRisk(st) ? WARN : ''}${ICON.chev}</div>
       ${(() => { const tr = trendOf(c, s.id); return `<div class="otrend">
         ${st.total == null ? '<span class="tot">Ø –</span>' : `<span class="tot ${gradeCls(st.total)}">Ø ${fmtNum(st.total)}${trendIcon(tr)}</span>`}
         ${sparkHTML(tr)}</div>`; })()}
@@ -484,6 +490,54 @@ function viewOverview(c) {
       <a class="btn secondary block" href="#/b/${c.id}">${ICON.sliders} Bewertung & Gewichtung</a>
       <button class="btn secondary block" data-a="exportOverview">${ICON.download} Übersicht exportieren</button>
     </div>`;
+}
+
+/* ---------- Gruppe aus mehreren Klassen ---------- */
+const fromTag = s => s.from ? `<span class="from">${esc(s.from)}</span>` : '';
+const cmp = { key: '', name: '', sel: new Set(), open: new Set(), carry: true };
+function cmpReset(key) { if (cmp.key !== key) Object.assign(cmp, { key, name: '', sel: new Set(), open: new Set(), carry: true }); }
+const cmpKey = (cid, sid) => cid + '|' + sid;
+
+function viewCompose(target) {
+  cmpReset(target ? target.id : 'new');
+  setHeader({ title: target ? 'Hinzufügen' : 'Neue Gruppe', back: target ? '#/k/' + target.id : '#/', backLabel: target ? target.name : 'Klassen' });
+  const sources = [...data.classes].filter(c => c !== target && c.students.length).sort(byName);
+  const have = new Set(target ? target.students.map(s => s.name.toLowerCase()) : []);
+  const cards = sources.map(c => {
+    const studs = [...c.students].sort(byName);
+    const n = studs.filter(s => cmp.sel.has(cmpKey(c.id, s.id))).length;
+    const state = n === 0 ? '' : n === studs.length ? 'on' : 'some';
+    const open = cmp.open.has(c.id);
+    const list = open ? studs.map(s => {
+      const dup = have.has(s.name.toLowerCase());
+      const on = cmp.sel.has(cmpKey(c.id, s.id));
+      return `<button class="pick${dup ? ' dup' : ''}" data-a="cmpStudent" data-c="${c.id}" data-s="${s.id}" ${dup ? 'disabled' : ''}>
+        <span class="chk ${on ? 'on' : ''}">${on ? ICON.check : ''}</span><span class="grow">${esc(s.name)}</span>${dup ? '<span class="muted">schon in der Gruppe</span>' : ''}</button>`;
+    }).join('') : '';
+    return `<div class="card cmpcard">
+      <div class="cmphead">
+        <button class="pick head" data-a="cmpClass" data-c="${c.id}" aria-label="${esc(c.name)} ganz auswählen">
+          <span class="chk ${state}">${state === 'on' ? ICON.check : state === 'some' ? '<i></i>' : ''}</span>
+          <span class="ctile sm ${avc(c.name)}">${esc(shortClass(c.name))}</span>
+          <span class="grow"><span class="ctitle">${esc(c.name)}</span><span class="csub">${n ? `${n} von ${studs.length} ausgewählt` : plural(studs.length, 'Schüler:in', 'Schüler:innen')}</span></span>
+        </button>
+        <button class="icon-btn exp${open ? ' open' : ''}" data-a="cmpOpen" data-c="${c.id}" aria-label="Einzelne auswählen">${ICON.down}</button>
+      </div>${list}</div>`;
+  }).join('');
+  const total = cmp.sel.size;
+  const withEntries = [...cmp.sel].some(k => { const [cid, sid] = k.split('|'); return data.entries.some(e => e.c === cid && e.s === sid); });
+  return `<div class="hero"><div class="eyebrow">${target ? esc(target.name) : 'Unterrichtsgruppe'}</div>
+      <h1>${target ? 'Schüler:innen hinzufügen' : 'Gruppe zusammenstellen'}</h1>
+      <div class="sub">Hake ganze Klassen an oder tippe auf ${ICON.down.replace('width="18" height="18"', 'width="14" height="14"')} und wähle einzelne Kinder.</div></div>
+    ${target ? '' : `<div class="section">Name der Gruppe</div>
+    <input class="field" id="cmpName" value="${esc(cmp.name)}" placeholder="z. B. Religion 3A/3B" autocomplete="off">`}
+    <div class="section">Aus diesen Klassen</div>
+    <div class="stack">${cards || '<div class="nothing">Keine weiteren Klassen mit Schüler:innen vorhanden.</div>'}</div>
+    ${withEntries ? `<button class="lrow toggle card" data-a="cmpCarry"><span class="chk ${cmp.carry ? 'on' : ''}">${cmp.carry ? ICON.check : ''}</span>
+      <span class="grow">Bisherige Einträge mitnehmen<span class="muted block">Noten, Mitarbeit usw. werden in die Gruppe kopiert</span></span></button>` : ''}
+    <p class="fine">Die ursprünglichen Klassen bleiben unverändert. In der Gruppe steht neben jedem Namen die Herkunftsklasse.</p>
+    <div class="sticky-cta"><button class="btn primary block" data-a="cmpCreate" ${total ? '' : 'disabled'}>
+      ${total ? (target ? `${plural(total, 'Person', 'Personen')} hinzufügen` : `Gruppe mit ${plural(total, 'Person', 'Personen')} anlegen`) : 'Schüler:innen auswählen'}</button></div>`;
 }
 
 /* ---------- Bewertung (Einstellungen je Klasse) ---------- */
@@ -565,7 +619,7 @@ function viewStudent(c, sid) {
     }
   }
   return `<div class="phero"><span class="av lg ${avc(s.name)}">${esc(initials(s.name))}</span>
-      <div><div class="eyebrow">${esc(c.name)}</div><h1>${esc(s.name)}</h1>
+      <div><div class="eyebrow">${esc(c.name)}${s.from ? ' · aus ' + esc(s.from) : ''}</div><h1>${esc(s.name)}</h1>
       ${isRisk(st) ? `<div class="riskpill">${WARN} Gesamtnote über 4</div>` : ''}</div></div>
     <button class="btn secondary block" data-a="vhStudent">${ICON.smile} Verhalten notieren</button>
     ${tiles}
@@ -858,7 +912,13 @@ const actions = {
   },
   goSettings() { location.hash = '#/einstellungen'; },
 
+  goCompose() { location.hash = '#/neu'; },
   async addClass() {
+    if (data.classes.length > 1) {
+      const k = await modal({ title: 'Neue Klasse', options: [['empty', 'Leere Klasse anlegen'], ['mix', 'Gruppe aus mehreren Klassen zusammenstellen']] });
+      if (!k) return;
+      if (k === 'mix') { location.hash = '#/neu'; return; }
+    }
     const name = (await modal({ title: 'Neue Klasse', input: true, placeholder: 'z. B. 3B', ok: 'Anlegen' }) || '').trim();
     if (!name) return;
     const c = { id: uid(), name, students: [] };
@@ -868,12 +928,13 @@ const actions = {
     const c = currentClass(); if (!c) return;
     const k = await modal({
       title: c.name, options: [
-        ['cfg', 'Bewertung & Gewichtung'], ['add', 'Schüler:innen eintippen'], ['imp', 'Liste importieren (WebUntis, Excel, CSV)'],
+        ['cfg', 'Bewertung & Gewichtung'], ['mix', 'Schüler:innen aus anderen Klassen'], ['add', 'Schüler:innen eintippen'], ['imp', 'Liste importieren (WebUntis, Excel, CSV)'],
         ['ov', 'Übersicht exportieren'], ['all', 'Alle Einträge exportieren'],
         ['ren', 'Klasse umbenennen'], ['del', 'Klasse löschen', true]
       ], cancel: 'Schließen'
     });
     if (k === 'cfg') location.hash = '#/b/' + c.id;
+    if (k === 'mix') location.hash = '#/neu/' + c.id;
     if (k === 'add') actions.addStudents();
     if (k === 'imp') actions.importStudents();
     if (k === 'ov') actions.exportOverview();
@@ -974,6 +1035,43 @@ const actions = {
     if (row) row.outerHTML = rowHTML(c, s);
     haptic();
     await save();
+  },
+  cmpClass(d) {
+    const c = getClass(d.c); if (!c) return;
+    const target = getClass(location.hash.split('/')[2]);
+    const have = new Set(target ? target.students.map(s => s.name.toLowerCase()) : []);
+    const keys = c.students.filter(s => !have.has(s.name.toLowerCase())).map(s => cmpKey(c.id, s.id));
+    const all = keys.length && keys.every(k => cmp.sel.has(k));
+    keys.forEach(k => all ? cmp.sel.delete(k) : cmp.sel.add(k));
+    render();
+  },
+  cmpStudent(d) { const k = cmpKey(d.c, d.s); cmp.sel.has(k) ? cmp.sel.delete(k) : cmp.sel.add(k); render(); },
+  cmpOpen(d) { cmp.open.has(d.c) ? cmp.open.delete(d.c) : cmp.open.add(d.c); render(); },
+  cmpCarry() { cmp.carry = !cmp.carry; render(); },
+  async cmpCreate() {
+    if (!cmp.sel.size) return;
+    let target = getClass(location.hash.split('/')[2]);
+    if (!target) {
+      const name = (cmp.name || '').trim() || (await modal({ title: 'Name der Gruppe', input: true, placeholder: 'z. B. Religion 3A/3B', ok: 'Anlegen' }) || '').trim();
+      if (!name) return;
+      const firstSrc = getClass([...cmp.sel][0].split('|')[0]);
+      target = { id: uid(), name, students: [], ...(firstSrc && firstSrc.cfg ? { cfg: JSON.parse(JSON.stringify(firstSrc.cfg)) } : {}) };
+      data.classes.push(target);
+    }
+    const have = new Set(target.students.map(s => s.name.toLowerCase()));
+    let added = 0, copied = 0;
+    for (const k of cmp.sel) {
+      const [cid, sid] = k.split('|');
+      const src = getClass(cid), s = src && src.students.find(x => x.id === sid);
+      if (!s || have.has(s.name.toLowerCase())) continue;
+      const ns = { id: uid(), name: s.name, from: s.from || src.name };
+      target.students.push(ns); have.add(s.name.toLowerCase()); added++;
+      if (cmp.carry) data.entries.filter(e => e.c === cid && e.s === sid).forEach(e => { data.entries.push({ ...e, id: uid(), c: target.id, s: ns.id }); copied++; });
+    }
+    cmp.key = '';
+    await save();
+    location.hash = '#/k/' + target.id;
+    toast(`${plural(added, 'Person', 'Personen')} übernommen${copied ? ` · ${copied} Einträge kopiert` : ''}`);
   },
   async setScale(d) {
     const c = currentClass(); if (!c) return;
@@ -1118,6 +1216,7 @@ document.addEventListener('click', e => {
 document.addEventListener('change', e => {
   if (e.target.id === 'date' && e.target.value) { ui.date = e.target.value; render(); }
 });
+document.addEventListener('input', e => { if (e.target.id === 'cmpName') cmp.name = e.target.value; });
 
 /* ---------- Start ---------- */
 async function loadData() {
