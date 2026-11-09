@@ -8,7 +8,7 @@ const PUBLIC_KEY = {
   x: 'kHkzCWyGjuxGxGf_3AMH2F_MKEWEjH1hfCnBf7K1Imo',
   y: 'Fv556fMFzralLJTUqYxNxI68b9Fd4ctkLzgn07BzKj0'
 };
-const APP_VERSION = '2.4';
+const APP_VERSION = '2.5';
 
 const TYPES = {
   ma: { label: 'Mitarbeit', long: 'Mitarbeit', icon: 'spark', vals: [['+', '+', 'g'], ['~', '~', 'm'], ['-', '−', 'b']] },
@@ -123,6 +123,9 @@ const ICON = {
   shield: svg('<path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.2-7.5 9.5-4.3-1.3-7.5-4.9-7.5-9.5V6z"/><path d="M9 12l2 2 4-4"/>', 18, 1.9),
   trash: svg('<path d="M4.5 7h15M10 11v6M14 11v6M6 7l1 12.5A1.5 1.5 0 0 0 8.5 21h7a1.5 1.5 0 0 0 1.5-1.5L18 7M9 7V4.5A1.5 1.5 0 0 1 10.5 3h3A1.5 1.5 0 0 1 15 4.5V7"/>', 18, 1.9),
   frown: svg('<circle cx="12" cy="12" r="8.5"/><path d="M8.5 16a4.2 4.2 0 0 1 7 0"/><path d="M9.2 9.6h.01M14.8 9.6h.01" stroke-width="2.6"/>', 18, 1.8),
+  tUp: svg('<path d="M5 16.5L10.5 11l3.5 3.5L19.5 9"/><path d="M14.5 9h5v5"/>', 17, 2.2),
+  tDown: svg('<path d="M5 7.5l5.5 5.5 3.5-3.5 5.5 5.5"/><path d="M14.5 15h5v-5"/>', 17, 2.2),
+  tFlat: svg('<path d="M4.5 12h14"/><path d="M15 8.5l3.5 3.5-3.5 3.5"/>', 17, 2.2),
   sliders: svg('<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>', 19, 2),
   close: svg('<path d="M7 7l10 10M17 7L7 17"/>', 18, 2),
   info: svg('<circle cx="12" cy="12" r="8.5"/><path d="M12 11v5M12 8h.01" stroke-width="2.4"/>', 18, 1.9)
@@ -260,7 +263,7 @@ function viewHome() {
     return `<a class="citem" href="#/k/${c.id}">
       <span class="ctile ${avc(c.name)}">${esc(shortClass(c.name))}</span>
       <span class="cbody"><span class="ctitle">${esc(c.name)}</span>
-      <span class="csub">${plural(c.students.length, 'Schüler:in', 'Schüler:innen')}</span></span>
+      <span class="csub">${plural(c.students.length, 'Schüler:in', 'Schüler:innen')}${(() => { const n = c.students.filter(s => isRisk(stats(c, s.id))).length; return n ? ` · <span class="b-t">${n} über 4</span>` : ''; })()}</span></span>
       ${last ? `<span class="cwhen">${esc(shortDay(last))}</span>` : ''}${ICON.chev}</a>`;
   }).join('');
   return hero + `<div class="card">${items}</div>
@@ -274,7 +277,7 @@ function viewHome() {
 function viewClass(c) {
   setHeader({ title: c.name, back: '#/', backLabel: 'Klassen', act: { icon: 'more', a: 'classMenu', label: 'Klassenmenü' } });
   const hero = `<div class="hero"><div class="eyebrow">Klasse</div><h1>${esc(c.name)}</h1>
-    <div class="sub">${plural(c.students.length, 'Schüler:in', 'Schüler:innen')}</div></div>`;
+    <div class="sub">${plural(c.students.length, 'Schüler:in', 'Schüler:innen')}${(() => { const n = c.students.filter(s => isRisk(stats(c, s.id))).length; return n ? ` · <span class="riskcount">${WARN} ${n} mit Note über 4</span>` : ''; })()}</div></div>`;
   if (!c.students.length) {
     return hero + `<div class="card empty">
       <h2>Noch niemand da</h2>
@@ -326,7 +329,7 @@ function rowHTML(c, s) {
       `<button class="v ${cls} ${curV === v ? 'on' : ''}" data-a="mark" data-s="${s.id}" data-v="${v}" aria-label="${esc(t.label + ' ' + label)}">${glyph(label)}</button>`).join('');
   }
   return `<div class="srow${t.multi || valsFor(c, ui.type).length > 3 ? ' five' : ''}" data-row="${s.id}">
-    <a class="sname-wrap" href="#/s/${c.id}/${s.id}"><span class="sname">${esc(s.name)}</span>${meta ? `<span class="smeta">${meta}</span>` : ''}</a>
+    <a class="sname-wrap" href="#/s/${c.id}/${s.id}"><span class="sname">${isRisk(stats(c, s.id)) ? WARN : ''}${esc(s.name)}</span>${meta ? `<span class="smeta">${meta}</span>` : ''}</a>
     <div class="vals">${btns}</div></div>`;
 }
 
@@ -356,6 +359,91 @@ function stats(c, sid) {
   return st;
 }
 const gradeCls = g => g == null ? '' : g < 2.5 ? 'g-t' : g < 4.5 ? 'm-t' : 'b-t';
+
+/* ---------- Trend & Warnung ---------- */
+const RISK = 4; // Gesamtnote über 4 → Rufzeichen
+const isRisk = st => st.total != null && st.total > RISK;
+const WARN = '<span class="warn" title="Gesamtnote über 4" aria-label="Achtung: Gesamtnote über 4">!</span>';
+
+// Gesamtnote zu jedem Datum (mit allen Einträgen bis dahin), gleiche Gewichtung wie oben
+function seriesOf(c, sid) {
+  const wt = cfg(c).weight;
+  const es = entriesOf(c.id, sid).filter(e => TYPES[e.t]).sort((a, b) => a.d.localeCompare(b.d));
+  const acc = {}; Object.keys(TYPES).forEach(k => { acc[k] = { s: 0, w: 0 }; });
+  const out = [];
+  es.forEach((e, i) => {
+    const num = e.t === 'vh' ? VH_NUM[e.v] : NUM[e.v], w = e.w || 1;
+    if (num != null) { acc[e.t].s += num * w; acc[e.t].w += w; }
+    if (i === es.length - 1 || es[i + 1].d !== e.d) {
+      let S = 0, W = 0;
+      for (const k in acc) if ((wt[k] || 0) > 0 && acc[k].w) { S += wt[k] * acc[k].s / acc[k].w; W += wt[k]; }
+      if (W) out.push({ d: e.d, v: S / W });
+    }
+  });
+  return out;
+}
+// Vergleich: heutiger Stand gegenüber dem Stand vor 4 Wochen
+function trendOf(c, sid) {
+  const ser = seriesOf(c, sid);
+  if (ser.length < 2) return { ser, dir: null };
+  const now = ser[ser.length - 1], cut = shiftDay(now.d, -28);
+  let then = null;
+  for (const p of ser) if (p.d <= cut) then = p;
+  if (!then) then = ser[0];
+  const delta = now.v - then.v;
+  return { ser, delta, since: then.d, dir: delta <= -0.15 ? 'up' : delta >= 0.15 ? 'down' : 'flat' };
+}
+const TREND = {
+  up: { icon: 'tUp', cls: 'g-t', word: 'verbessert sich' },
+  down: { icon: 'tDown', cls: 'b-t', word: 'verschlechtert sich' },
+  flat: { icon: 'tFlat', cls: 'flat-t', word: 'bleibt gleich' }
+};
+const trendIcon = tr => tr && tr.dir ? `<span class="trend ${TREND[tr.dir].cls}" title="${TREND[tr.dir].word}">${ICON[TREND[tr.dir].icon]}</span>` : '';
+
+function chartHTML(ser) {
+  const W = Math.round(Math.max(260, Math.min(560, (main.clientWidth || 360) - 64))), H = 150;
+  const L = 24, R = 30, T = 14, B = 24;
+  const t0 = dt(ser[0].d).getTime(), span = Math.max(1, dt(ser[ser.length - 1].d).getTime() - t0);
+  const x = d => +(L + (dt(d).getTime() - t0) / span * (W - L - R)).toFixed(1);
+  const y = v => +(T + (Math.min(5, Math.max(1, v)) - 1) / 4 * (H - T - B)).toFixed(1);
+  const pts = ser.map(p => [x(p.d), y(p.v), `${fmtDay(p.d)} · Ø ${fmtNum(p.v)}`]);
+  const grid = [1, 2, 3, 4, 5].map(g => `<line class="ch-grid" x1="${L}" x2="${W - R}" y1="${y(g)}" y2="${y(g)}"/><text class="ch-ax" x="${L - 8}" y="${y(g) + 4}" text-anchor="end">${g}</text>`).join('');
+  const last = pts[pts.length - 1];
+  const short = d => dt(d).toLocaleDateString('de-AT', { day: 'numeric', month: 'numeric' });
+  return `<div class="chart" data-pts="${esc(JSON.stringify(pts))}">
+    <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Verlauf der Gesamtnote von ${fmtNum(ser[0].v)} auf ${fmtNum(ser[ser.length - 1].v)}">
+      <rect class="ch-risk" x="${L}" y="${y(4)}" width="${W - L - R}" height="${y(5) - y(4)}"/>
+      ${grid}
+      <line class="ch-four" x1="${L}" x2="${W - R}" y1="${y(4)}" y2="${y(4)}"/>
+      <path class="ch-line" d="${pts.map((p, i) => (i ? 'L' : 'M') + p[0] + ' ' + p[1]).join(' ')}"/>
+      <circle class="ch-dot" cx="${last[0]}" cy="${last[1]}" r="4.5"/>
+      <text class="ch-val" x="${last[0] + 8}" y="${last[1] + 4}">${fmtNum(ser[ser.length - 1].v)}</text>
+      <text class="ch-ax" x="${L}" y="${H - 6}">${short(ser[0].d)}</text>
+      <text class="ch-ax" x="${W - R}" y="${H - 6}" text-anchor="end">${short(ser[ser.length - 1].d)}</text>
+      <line class="ch-hl" x1="0" x2="0" y1="${T}" y2="${H - B}"/>
+      <circle class="ch-hd" cx="0" cy="0" r="4.5"/>
+    </svg><div class="ch-tip"></div></div>`;
+}
+// Antippen/Überfahren zeigt den Wert am nächstgelegenen Tag
+function chartHover(e) {
+  const ch = e.target.closest ? e.target.closest('.chart') : null;
+  document.querySelectorAll('.chart.on').forEach(x => { if (x !== ch) x.classList.remove('on'); });
+  if (!ch) return;
+  const svg = ch.querySelector('svg'), r = svg.getBoundingClientRect(), vb = svg.viewBox.baseVal;
+  const px = (e.clientX - r.left) * vb.width / r.width;
+  const pts = JSON.parse(ch.dataset.pts);
+  const p = pts.reduce((a, b) => Math.abs(b[0] - px) < Math.abs(a[0] - px) ? b : a);
+  svg.querySelector('.ch-hl').setAttribute('x1', p[0]); svg.querySelector('.ch-hl').setAttribute('x2', p[0]);
+  svg.querySelector('.ch-hd').setAttribute('cx', p[0]); svg.querySelector('.ch-hd').setAttribute('cy', p[1]);
+  const tip = ch.querySelector('.ch-tip');
+  tip.textContent = p[2];
+  const left = Math.min(Math.max(p[0] * r.width / vb.width, 60), r.width - 60);
+  tip.style.left = left + 'px';
+  tip.style.top = (p[1] * r.height / vb.height) + 'px';
+  ch.classList.add('on');
+}
+document.addEventListener('pointermove', chartHover);
+document.addEventListener('pointerdown', chartHover);
 const dash = '<span class="chev">–</span>';
 
 function metricHTML(c, st, k) {
@@ -369,8 +457,8 @@ function viewOverview(c) {
   const rows = [...c.students].sort(byName).map(s => {
     const st = stats(c, s.id);
     return `<a class="orow" href="#/s/${c.id}/${s.id}">
-      <div class="otop"><span class="av ${avc(s.name)}">${esc(initials(s.name))}</span><span class="oname">${esc(s.name)}</span>
-      ${st.total == null ? '' : `<span class="tot ${gradeCls(st.total)}">Ø ${fmtNum(st.total)}</span>`}${ICON.chev}</div>
+      <div class="otop"><span class="av ${avc(s.name)}">${esc(initials(s.name))}</span><span class="oname">${esc(s.name)}</span>${isRisk(st) ? WARN : ''}
+      ${st.total == null ? '' : `<span class="tot ${gradeCls(st.total)}">Ø ${fmtNum(st.total)}${trendIcon(trendOf(c, s.id))}</span>`}${ICON.chev}</div>
       <div class="metrics">${Object.keys(TYPES).map(k => `<span class="met"><span class="ml">${SHORT[k]}</span><span class="mv">${metricHTML(c, st, k)}</span></span>`).join('')}</div></a>`;
   }).join('');
   return `<div class="card">${rows}</div>
@@ -460,12 +548,29 @@ function viewStudent(c, sid) {
     }
   }
   return `<div class="phero"><span class="av lg ${avc(s.name)}">${esc(initials(s.name))}</span>
-      <div><div class="eyebrow">${esc(c.name)}</div><h1>${esc(s.name)}</h1></div></div>
+      <div><div class="eyebrow">${esc(c.name)}</div><h1>${esc(s.name)}</h1>
+      ${isRisk(st) ? `<div class="riskpill">${WARN} Gesamtnote über 4</div>` : ''}</div></div>
     <button class="btn secondary block" data-a="vhStudent">${ICON.smile} Verhalten notieren</button>
     ${tiles}
+    ${trendCard(c, sid)}
     <div class="cats filters">${chips}</div>
     ${es.some(e => e.t !== 'vh') ? '<p class="fine">Tipp: Tippe auf eine Note, um sie halb, doppelt oder dreifach zählen zu lassen.</p>' : ''}
     ${list}`;
+}
+
+function trendCard(c, sid) {
+  const tr = trendOf(c, sid);
+  let head;
+  if (!tr.dir) head = `<div class="trendline"><span class="chev">${ICON.tFlat}</span><span>Noch zu wenige Einträge für einen Trend</span></div>`;
+  else {
+    const t = TREND[tr.dir], weeks = Math.max(1, Math.round((dt(tr.ser[tr.ser.length - 1].d) - dt(tr.since)) / 6048e5));
+    const d = tr.delta;
+    head = `<div class="trendline"><span class="trend big ${t.cls}">${ICON[t.icon]}</span>
+      <span><span class="tw">${t.word[0].toUpperCase() + t.word.slice(1)}</span>
+      <span class="ts">${d === 0 ? 'unverändert' : (d < 0 ? 'um ' + fmtNum(-d) + ' besser' : 'um ' + fmtNum(d) + ' schlechter')} als vor ${weeks === 1 ? 'einer Woche' : weeks + ' Wochen'}</span></span></div>`;
+  }
+  return `<div class="section">Verlauf der Gesamtnote</div>
+    <div class="card chartcard">${head}${tr.ser.length >= 2 ? chartHTML(tr.ser) : ''}</div>`;
 }
 
 /* ---------- Einstellungen ---------- */

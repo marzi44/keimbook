@@ -434,3 +434,49 @@ a.btn { text-decoration: none; }
 .facebtn.on.g { background: var(--pos-soft); border-color: var(--pos); color: var(--pos); }
 .facebtn.on.m { background: var(--mid-soft); border-color: var(--mid); color: var(--mid); }
 .facebtn.on.b { background: var(--neg-soft); border-color: var(--neg); color: var(--neg); }
+
+/* ---------- Trend & Warnung ---------- */
+.warn {
+  display: inline-grid; place-items: center; width: 19px; height: 19px; border-radius: 50%; flex: none;
+  background: var(--neg); color: #fff; font-size: 12.5px; font-weight: 800; line-height: 1;
+  vertical-align: -3px; margin-right: 6px;
+}
+.otop .warn { margin: 0; }
+@media (prefers-color-scheme: dark) { .warn { color: var(--on-ink); } }
+.riskcount { display: inline-flex; align-items: center; color: var(--neg); font-weight: 600; }
+.riskcount .warn { width: 17px; height: 17px; font-size: 11.5px; margin-right: 4px; vertical-align: 0; }
+.riskpill {
+  display: inline-flex; align-items: center; margin-top: 8px; padding: 4px 11px 4px 5px; border-radius: 999px;
+  background: var(--neg-soft); color: var(--neg); font-size: 13px; font-weight: 650;
+}
+.riskpill .warn { width: 18px; height: 18px; margin-right: 6px; vertical-align: 0; }
+.tot { display: inline-flex; align-items: center; gap: 4px; }
+.trend { display: inline-grid; place-items: center; }
+.trend svg { width: 15px; height: 15px; }
+.flat-t { color: var(--ink-3); }
+.chartcard { padding: 14px 14px 8px; }
+.trendline { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.trend.big { width: 38px; height: 38px; border-radius: 50%; background: var(--surface-2); flex: none; }
+.trend.big svg { width: 20px; height: 20px; }
+.trend.big.g-t { background: var(--pos-soft); } .trend.big.b-t { background: var(--neg-soft); }
+.trendline .tw { display: block; font-size: 16px; font-weight: 650; }
+.trendline .ts { display: block; font-size: 13px; color: var(--ink-3); margin-top: 1px; }
+.chart { position: relative; margin: 0 -2px; touch-action: pan-y; }
+.chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.ch-grid { stroke: var(--line); stroke-width: 1; }
+.ch-ax { fill: var(--ink-3); font-size: 11px; font-weight: 500; }
+.ch-risk { fill: var(--neg-soft); }
+.ch-four { stroke: var(--neg); stroke-width: 1; stroke-dasharray: 3 3; opacity: .55; }
+.ch-line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.ch-dot, .ch-hd { fill: var(--accent); stroke: var(--surface); stroke-width: 2; }
+.ch-val { fill: var(--ink); font-size: 12px; font-weight: 700; }
+.ch-hl { stroke: var(--ink-3); stroke-width: 1; }
+.ch-hl, .ch-hd { opacity: 0; transition: opacity .15s; }
+.chart.on .ch-hl, .chart.on .ch-hd { opacity: 1; }
+.ch-tip {
+  position: absolute; top: 0; transform: translate(-50%, calc(-100% - 12px)); pointer-events: none; opacity: 0; z-index: 2;
+  background: var(--ink); color: var(--on-ink); font-size: 12px; font-weight: 600; padding: 5px 9px;
+  border-radius: 8px; white-space: nowrap; transition: opacity .15s;
+}
+.chart.on .ch-tip { opacity: 1; }
+.chartcard > * + * { border-top: 0; }
