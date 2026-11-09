@@ -8,7 +8,7 @@ const PUBLIC_KEY = {
   x: 'kHkzCWyGjuxGxGf_3AMH2F_MKEWEjH1hfCnBf7K1Imo',
   y: 'Fv556fMFzralLJTUqYxNxI68b9Fd4ctkLzgn07BzKj0'
 };
-const APP_VERSION = '2.7';
+const APP_VERSION = '2.8';
 
 const TYPES = {
   ma: { label: 'Mitarbeit', long: 'Mitarbeit', icon: 'spark', vals: [['+', '+', 'g'], ['~', '~', 'm'], ['-', '−', 'b']] },
@@ -110,6 +110,9 @@ const ICON = {
   more: '<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" fill="currentColor"><circle cx="5" cy="12" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="19" cy="12" r="1.9"/></svg>',
   plus: svg('<path d="M12 5v14M5 12h14"/>', 20, 2.2),
   merge: svg('<circle cx="6.5" cy="6" r="2.2"/><circle cx="6.5" cy="18" r="2.2"/><circle cx="17.5" cy="12" r="2.2"/><path d="M6.5 8.2v7.6M8.6 6.6c4 .8 5.6 2.5 6.8 4.2M8.6 17.4c4-.8 5.6-2.5 6.8-4.2"/>', 19, 1.9),
+  eye: svg('<path d="M2.5 12s3.5-6.5 9.5-6.5 9.5 6.5 9.5 6.5-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/>', 19, 1.9),
+  eyeOff: svg('<path d="M4 4l16 16"/><path d="M9.9 5.8A9.6 9.6 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a16 16 0 0 1-3 3.7M6.4 7.4A16 16 0 0 0 2.5 12s3.5 6.5 9.5 6.5a9 9 0 0 0 4.3-1.1"/><path d="M10 10a2.8 2.8 0 0 0 4 4"/>', 19, 1.9),
+  list: svg('<path d="M9 6.5h11M9 12h11M9 17.5h11"/><path d="M4.5 6.5h.01M4.5 12h.01M4.5 17.5h.01" stroke-width="2.8"/>', 19, 1.9),
   check: svg('<path d="M6 12.5l4 4 8-8.5"/>', 15, 2.8),
   down: svg('<path d="M6.5 9.5L12 15l5.5-5.5"/>', 18, 2.2),
   left: svg('<path d="M14.5 5.5L8 12l6.5 6.5"/>', 22, 2.2),
@@ -234,6 +237,7 @@ function render() {
   else if (view === 's' && getClass(a) && getClass(a).students.find(s => s.id === b)) { key = 's' + b; html = viewStudent(getClass(a), b); }
   else if (view === 'b' && getClass(a)) { key = 'b' + a; html = viewRating(getClass(a)); }
   else if (view === 'neu' && data.classes.length) { key = 'neu' + (a || ''); html = viewCompose(a ? getClass(a) : null); }
+  else if (view === 'verwalten') { key = 'man'; html = viewManage(); }
   else if (view === 'einstellungen') { key = 'set'; html = viewSettings(); }
   else {
     if (location.hash && location.hash !== '#/') history.replaceState(null, '', '#/');
@@ -261,29 +265,62 @@ function viewHome() {
         <button class="btn ghost" data-a="addClass">Klasse selbst anlegen</button>
       </div></div>`;
   }
-  const lastOf = cid => data.entries.reduce((m, e) => e.c === cid && e.d > m ? e.d : m, '');
-  const items = [...data.classes].sort(byName).map(c => {
-    const last = lastOf(c.id);
-    return `<a class="citem" href="#/k/${c.id}">
-      <span class="ctile ${avc(c.name)}">${esc(shortClass(c.name))}</span>
-      <span class="cbody"><span class="ctitle">${esc(c.name)}</span>
-      <span class="csub">${plural(c.students.length, 'Schüler:in', 'Schüler:innen')}${(() => { const n = c.students.filter(s => isRisk(stats(c, s.id))).length; return n ? ` · <span class="b-t">${n} über 4</span>` : ''; })()}</span></span>
-      ${last ? `<span class="cwhen">${esc(shortDay(last))}</span>` : ''}${ICON.chev}</a>`;
-  }).join('');
-  return hero + `<div class="card">${items}</div>
+  const visible = [...data.classes].filter(c => !c.hidden).sort(byName);
+  const hidden = [...data.classes].filter(c => c.hidden).sort(byName);
+  const list = visible.length ? `<div class="card">${visible.map(c => classItem(c)).join('')}</div>`
+    : `<div class="card empty"><h2>Alle Klassen ausgeblendet</h2><p>Blende unten eine Klasse wieder ein oder lege eine neue an.</p></div>`;
+  const hiddenBlock = hidden.length ? `
+    <div class="hidrow">
+      <button class="link" data-a="toggleHidden">${ui.showHidden ? ICON.eyeOff : ICON.eye} ${ui.showHidden ? 'Ausgeblendete verbergen' : `Ausgeblendete anzeigen (${hidden.length})`}</button>
+    </div>
+    ${ui.showHidden ? `<div class="card dimcard">${hidden.map(c => classItem(c, true)).join('')}</div>` : ''}` : '';
+  return hero + list + `
     <div class="pill-row">
       <button class="btn secondary" data-a="addClass">${ICON.plus} Neue Klasse</button>
       <button class="btn secondary" data-a="importAny">${ICON.upload} Importieren</button>
     </div>
-    ${data.classes.length > 1 ? `<button class="btn secondary block mt" data-a="goCompose">${ICON.merge} Gruppe aus mehreren Klassen</button>
-    <p class="fine center">Für Unterricht mit Kindern aus verschiedenen Klassen, z. B. Religion oder Wahlpflichtfächer.</p>` : ''}`;
+    <div class="pill-row tight">
+      ${data.classes.length > 1 ? `<button class="btn secondary" data-a="goCompose">${ICON.merge} Gruppe bilden</button>` : ''}
+      <button class="btn secondary${data.classes.length > 1 ? '' : ' span2'}" data-a="goManage">${ICON.list} Verwalten</button>
+    </div>
+    ${hiddenBlock}`;
+}
+
+function classItem(c, isHidden = false) {
+  const last = data.entries.reduce((m, e) => e.c === c.id && e.d > m ? e.d : m, '');
+  const risk = c.students.filter(s => isRisk(stats(c, s.id))).length;
+  const body = `<a class="citem" href="#/k/${c.id}">
+      <span class="ctile ${avc(c.name)}">${esc(shortClass(c.name))}</span>
+      <span class="cbody"><span class="ctitle">${esc(c.name)}</span>
+      <span class="csub">${plural(c.students.length, 'Schüler:in', 'Schüler:innen')}${risk ? ` · <span class="b-t">${risk} über 4</span>` : ''}</span></span>
+      ${!isHidden && last ? `<span class="cwhen">${esc(shortDay(last))}</span>` : ''}${isHidden ? '' : ICON.chev}</a>`;
+  return isHidden ? `<div class="hitem">${body}<button class="link small" data-a="unhide" data-c="${c.id}">Einblenden</button></div>` : body;
+}
+
+/* ---------- Klassen verwalten ---------- */
+function viewManage() {
+  setHeader({ title: 'Klassen verwalten', back: '#/', backLabel: 'Klassen' });
+  const rows = [...data.classes].sort(byName).map(c => `
+    <div class="mrow${c.hidden ? ' off' : ''}">
+      <span class="ctile sm ${avc(c.name)}">${esc(shortClass(c.name))}</span>
+      <span class="grow"><span class="ctitle">${esc(c.name)}</span>
+        <span class="csub">${plural(c.students.length, 'Schüler:in', 'Schüler:innen')}${c.hidden ? ' · ausgeblendet' : ''}</span></span>
+      <button class="mbtn${c.hidden ? '' : ' on'}" data-a="toggleClassHidden" data-c="${c.id}" aria-label="${c.hidden ? 'Einblenden' : 'Ausblenden'}">${c.hidden ? ICON.eyeOff : ICON.eye}</button>
+      <button class="mbtn del" data-a="deleteClass" data-c="${c.id}" aria-label="Löschen">${ICON.trash}</button>
+    </div>`).join('');
+  return `<div class="hero"><h1>Klassen verwalten</h1>
+      <div class="sub">${ICON.eye.replace('width="19" height="19"', 'width="15" height="15"')} sichtbar &nbsp;·&nbsp; ${ICON.eyeOff.replace('width="19" height="19"', 'width="15" height="15"')} ausgeblendet</div></div>
+    ${rows ? `<div class="card">${rows}</div>` : '<div class="nothing">Noch keine Klassen.</div>'}
+    <p class="fine">Ausgeblendete Klassen erscheinen nicht mehr auf der Startseite. Alle Schüler:innen und Einträge bleiben erhalten, und du kannst sie jederzeit wieder einblenden. Für Gruppen aus mehreren Klassen stehen sie weiterhin zur Auswahl.</p>
+    <p class="fine">Löschen entfernt die Klasse mit allen Einträgen endgültig.</p>`;
 }
 
 /* ---------- Klasse ---------- */
 function viewClass(c) {
   setHeader({ title: c.name, back: '#/', backLabel: 'Klassen', act: { icon: 'more', a: 'classMenu', label: 'Klassenmenü' } });
   const hero = `<div class="hero"><div class="eyebrow">${c.students.some(s => s.from) ? 'Gruppe' : 'Klasse'}</div><h1>${esc(c.name)}</h1>
-    <div class="sub">${plural(c.students.length, 'Schüler:in', 'Schüler:innen')}${(() => { const n = c.students.filter(s => isRisk(stats(c, s.id))).length; return n ? ` · <span class="riskcount">${WARN} ${n} mit Note über 4</span>` : ''; })()}</div></div>`;
+    <div class="sub">${plural(c.students.length, 'Schüler:in', 'Schüler:innen')}${(() => { const n = c.students.filter(s => isRisk(stats(c, s.id))).length; return n ? ` · <span class="riskcount">${WARN} ${n} mit Note über 4</span>` : ''; })()}</div></div>
+    ${c.hidden ? `<div class="hidbanner">${ICON.eyeOff}<span class="grow">Diese Klasse ist ausgeblendet</span><button class="link small" data-a="unhide" data-c="${c.id}">Einblenden</button></div>` : ''}`;
   if (!c.students.length) {
     return hero + `<div class="card empty">
       <h2>Noch niemand da</h2>
@@ -656,6 +693,9 @@ function viewSettings() {
     </div>
     <p class="fine">Alle Daten liegen nur auf diesem Gerät. Exportiere regelmäßig eine Sicherung, z. B. in die Dateien-App oder auf einen USB-Stick.</p>
 
+    <div class="section">Klassen</div>
+    <div class="card"><button class="lrow" data-a="goManage"><span class="licon">${ICON.list}</span><span class="grow">Klassen verwalten</span><span class="muted">${data.classes.filter(c => c.hidden).length ? data.classes.filter(c => c.hidden).length + ' ausgeblendet' : ''}</span>${ICON.chev}</button></div>
+
     <div class="section">Lizenz</div>
     <div class="card"><div class="lrow static"><span class="licon">${ICON.key}</span><span class="grow">${esc(license.info.n)}</span><span class="muted">${esc(exp)}</span></div></div>
 
@@ -913,6 +953,22 @@ const actions = {
   goSettings() { location.hash = '#/einstellungen'; },
 
   goCompose() { location.hash = '#/neu'; },
+  goManage() { location.hash = '#/verwalten'; },
+  toggleHidden() { ui.showHidden = !ui.showHidden; render(); },
+  async unhide(d) { const c = getClass(d.c); if (!c) return; delete c.hidden; await save(); render(); toast(`„${c.name}“ wieder eingeblendet`); },
+  async toggleClassHidden(d) {
+    const c = getClass(d.c); if (!c) return;
+    if (c.hidden) delete c.hidden; else c.hidden = true;
+    await save(); render(); toast(c.hidden ? `„${c.name}“ ausgeblendet` : `„${c.name}“ eingeblendet`);
+  },
+  async deleteClass(d) {
+    const c = getClass(d.c); if (!c) return;
+    const n = data.entries.filter(e => e.c === c.id).length;
+    if (!await modal({ title: 'Klasse löschen?', text: `„${c.name}“ mit ${plural(c.students.length, 'Schüler:in', 'Schüler:innen')}${n ? ` und ${plural(n, 'Eintrag', 'Einträgen')}` : ''} wird endgültig gelöscht.\nTipp: Mit dem Auge kannst du die Klasse stattdessen nur ausblenden.`, ok: 'Endgültig löschen', danger: true })) return;
+    data.classes = data.classes.filter(x => x !== c);
+    data.entries = data.entries.filter(e => e.c !== c.id);
+    await save(); render(); toast('Klasse gelöscht');
+  },
   async addClass() {
     if (data.classes.length > 1) {
       const k = await modal({ title: 'Neue Klasse', options: [['empty', 'Leere Klasse anlegen'], ['mix', 'Gruppe aus mehreren Klassen zusammenstellen']] });
@@ -930,11 +986,12 @@ const actions = {
       title: c.name, options: [
         ['cfg', 'Bewertung & Gewichtung'], ['mix', 'Schüler:innen aus anderen Klassen'], ['add', 'Schüler:innen eintippen'], ['imp', 'Liste importieren (WebUntis, Excel, CSV)'],
         ['ov', 'Übersicht exportieren'], ['all', 'Alle Einträge exportieren'],
-        ['ren', 'Klasse umbenennen'], ['del', 'Klasse löschen', true]
+        ['ren', 'Klasse umbenennen'], ['hide', c.hidden ? 'Klasse wieder einblenden' : 'Klasse ausblenden'], ['del', 'Klasse löschen', true]
       ], cancel: 'Schließen'
     });
     if (k === 'cfg') location.hash = '#/b/' + c.id;
     if (k === 'mix') location.hash = '#/neu/' + c.id;
+    if (k === 'hide') { c.hidden = !c.hidden; if (!c.hidden) delete c.hidden; await save(); if (c.hidden) { location.hash = '#/'; toast(`„${c.name}“ ausgeblendet`); } else { render(); toast(`„${c.name}“ wieder eingeblendet`); } }
     if (k === 'add') actions.addStudents();
     if (k === 'imp') actions.importStudents();
     if (k === 'ov') actions.exportOverview();

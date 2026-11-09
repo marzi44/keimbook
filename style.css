@@ -530,3 +530,30 @@ a.btn { text-decoration: none; }
 }
 .btn[disabled] { opacity: .45; pointer-events: none; }
 .hero .sub svg { vertical-align: -2px; }
+
+/* ---------- Ausblenden & Verwalten ---------- */
+.hidrow { display: flex; justify-content: center; margin: 18px 0 8px; }
+.hidrow .link { display: inline-flex; align-items: center; gap: 7px; color: var(--ink-2); }
+.dimcard .citem { opacity: .62; }
+.hitem { display: flex; align-items: center; padding-right: 10px; }
+.hitem .citem { flex: 1; min-width: 0; }
+.link.small { font-size: 14px; padding: 6px 10px; flex: none; }
+.hidbanner {
+  display: flex; align-items: center; gap: 10px; margin: -6px 0 16px; padding: 10px 10px 10px 14px;
+  border-radius: 14px; background: var(--fill); color: var(--ink-2); font-size: 14.5px;
+}
+.hidbanner .grow { flex: 1; }
+.mrow { display: flex; align-items: center; gap: 12px; padding: 10px 10px 10px 14px; min-height: 64px; }
+.mrow .grow { flex: 1; min-width: 0; display: grid; gap: 1px; }
+.mrow.off .ctile, .mrow.off .ctitle { opacity: .5; }
+.mbtn {
+  width: 40px; height: 40px; border-radius: 12px; border: 0; flex: none; display: grid; place-items: center;
+  background: var(--fill); color: var(--ink-3); transition: background .15s, color .15s;
+}
+.mbtn.on { background: var(--accent-soft); color: var(--accent); }
+.mbtn.del { background: none; color: var(--ink-3); }
+.mbtn:active { transform: scale(.94); }
+.mbtn.del:active { background: var(--neg-soft); color: var(--neg); }
+.hero .sub svg { vertical-align: -2px; }
+.pill-row.tight { margin-top: 10px; }
+.pill-row .span2 { grid-column: 1 / -1; }
