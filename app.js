@@ -8,7 +8,7 @@ const PUBLIC_KEY = {
   x: 'kHkzCWyGjuxGxGf_3AMH2F_MKEWEjH1hfCnBf7K1Imo',
   y: 'Fv556fMFzralLJTUqYxNxI68b9Fd4ctkLzgn07BzKj0'
 };
-const APP_VERSION = '2.5';
+const APP_VERSION = '2.6';
 
 const TYPES = {
   ma: { label: 'Mitarbeit', long: 'Mitarbeit', icon: 'spark', vals: [['+', '+', 'g'], ['~', '~', 'm'], ['-', '−', 'b']] },
@@ -400,6 +400,21 @@ const TREND = {
 };
 const trendIcon = tr => tr && tr.dir ? `<span class="trend ${TREND[tr.dir].cls}" title="${TREND[tr.dir].word}">${ICON[TREND[tr.dir].icon]}</span>` : '';
 
+// Kleine Verlaufskurve für die Übersicht (1 oben, 5 unten, Bereich über 4 rot hinterlegt)
+function sparkHTML(tr) {
+  const ser = tr.ser;
+  if (ser.length < 2) return '<span class="nospark">noch kein Verlauf</span>';
+  const W = 200, H = 42, P = 4;
+  const t0 = dt(ser[0].d).getTime(), span = Math.max(1, dt(ser[ser.length - 1].d).getTime() - t0);
+  const x = d => +((dt(d).getTime() - t0) / span * W).toFixed(1);
+  const y = v => +(P + (Math.min(5, Math.max(1, v)) - 1) / 4 * (H - 2 * P)).toFixed(1);
+  const path = ser.map((p, i) => (i ? 'L' : 'M') + x(p.d) + ' ' + y(p.v)).join(' ');
+  return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Verlauf: ${TREND[tr.dir].word}">
+    <rect class="sp-risk" x="0" y="${y(4)}" width="${W}" height="${H - y(4)}"/>
+    <line class="sp-grid" x1="0" x2="${W}" y1="${y(3)}" y2="${y(3)}" vector-effect="non-scaling-stroke"/>
+    <path class="sp-line ${tr.dir}" d="${path}" vector-effect="non-scaling-stroke"/></svg>`;
+}
+
 function chartHTML(ser) {
   const W = Math.round(Math.max(260, Math.min(560, (main.clientWidth || 360) - 64))), H = 150;
   const L = 24, R = 30, T = 14, B = 24;
@@ -457,8 +472,10 @@ function viewOverview(c) {
   const rows = [...c.students].sort(byName).map(s => {
     const st = stats(c, s.id);
     return `<a class="orow" href="#/s/${c.id}/${s.id}">
-      <div class="otop"><span class="av ${avc(s.name)}">${esc(initials(s.name))}</span><span class="oname">${esc(s.name)}</span>${isRisk(st) ? WARN : ''}
-      ${st.total == null ? '' : `<span class="tot ${gradeCls(st.total)}">Ø ${fmtNum(st.total)}${trendIcon(trendOf(c, s.id))}</span>`}${ICON.chev}</div>
+      <div class="otop"><span class="av ${avc(s.name)}">${esc(initials(s.name))}</span><span class="oname">${esc(s.name)}</span>${isRisk(st) ? WARN : ''}${ICON.chev}</div>
+      ${(() => { const tr = trendOf(c, s.id); return `<div class="otrend">
+        ${st.total == null ? '<span class="tot">Ø –</span>' : `<span class="tot ${gradeCls(st.total)}">Ø ${fmtNum(st.total)}${trendIcon(tr)}</span>`}
+        ${sparkHTML(tr)}</div>`; })()}
       <div class="metrics">${Object.keys(TYPES).map(k => `<span class="met"><span class="ml">${SHORT[k]}</span><span class="mv">${metricHTML(c, st, k)}</span></span>`).join('')}</div></a>`;
   }).join('');
   return `<div class="card">${rows}</div>
