@@ -1,5 +1,5 @@
 // Offline-Cache. Bei jeder neuen Version VERSION erhöhen, damit Geräte das Update laden.
-const VERSION = 'kb-v19';
+const VERSION = 'kb-v20';
 const FILES = [
   './', './index.html', './app.js', './style.css', './manifest.webmanifest',
   './icon-192.png', './icon-512.png', './apple-touch-icon.png'

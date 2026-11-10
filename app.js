@@ -8,7 +8,7 @@ const PUBLIC_KEY = {
   x: 'kHkzCWyGjuxGxGf_3AMH2F_MKEWEjH1hfCnBf7K1Imo',
   y: 'Fv556fMFzralLJTUqYxNxI68b9Fd4ctkLzgn07BzKj0'
 };
-const APP_VERSION = '3.5';
+const APP_VERSION = '3.6';
 
 const TYPES = {
   ma: { label: 'Mitarbeit', long: 'Mitarbeit', icon: 'spark', vals: [['+', '+', 'g'], ['~', '~', 'm'], ['-', '−', 'b']] },
@@ -795,8 +795,8 @@ function viewStudent(c, sid) {
       val = x.n ? x.n + '×' : '–';
       sub = x.n ? `zuletzt: ${x.last}` : 'noch keine';
     } else if (k === 'an') {
-      val = st.abs.A ? `<span class="b-t">${st.abs.A}× abwesend</span>` : st.abs.AN ? 'immer da' : '–';
-      sub = st.abs.A + st.abs.AN ? `${st.abs.AN}× anwesend` : 'noch nichts eingetragen';
+      val = st.abs.A ? `<span class="b-t">${st.abs.A}</span>` : st.abs.AN ? '0' : '–';
+      sub = st.abs.A + st.abs.AN ? `${st.abs.A ? 'Tage abwesend' : 'nie abwesend'} · ${st.abs.AN}× anwesend` : 'noch nichts eingetragen';
     } else if (k === 'hu') {
       const T = st.hu.y + st.hu.n;
       val = T ? `${st.hu.y}/${T}` : '–';

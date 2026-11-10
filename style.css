@@ -638,3 +638,4 @@ a.inl { color: inherit; text-decoration: underline; text-decoration-color: var(-
   flex: none; margin-left: auto; padding: 5px 11px; border-radius: 999px;
   background: var(--neg-soft); color: var(--neg); font-size: 13px; font-weight: 650;
 }
+.csub .b-t { white-space: nowrap; }
