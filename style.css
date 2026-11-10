@@ -582,3 +582,10 @@ a.btn { text-decoration: none; }
 .kindbox { display: grid; gap: 12px; }
 .kindseg { margin: 0; }
 .kindseg button { font-size: 14px; }
+
+/* ---------- Kategorie bearbeiten ---------- */
+.catname { flex: 1; min-width: 0; display: grid; gap: 1px; text-align: left; border: 0; background: none; padding: 4px 0; border-radius: 8px; }
+.catname:active { opacity: .6; }
+.catname .ctitle { display: inline-flex; align-items: center; gap: 6px; }
+.catname .pen svg { width: 14px; height: 14px; color: var(--ink-3); }
+.link.left { justify-self: start; padding-left: 0; }

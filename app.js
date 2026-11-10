@@ -8,7 +8,7 @@ const PUBLIC_KEY = {
   x: 'kHkzCWyGjuxGxGf_3AMH2F_MKEWEjH1hfCnBf7K1Imo',
   y: 'Fv556fMFzralLJTUqYxNxI68b9Fd4ctkLzgn07BzKj0'
 };
-const APP_VERSION = '2.9';
+const APP_VERSION = '3.0';
 
 const TYPES = {
   ma: { label: 'Mitarbeit', long: 'Mitarbeit', icon: 'spark', vals: [['+', '+', 'g'], ['~', '~', 'm'], ['-', '−', 'b']] },
@@ -69,12 +69,15 @@ function cfg(c) {
   if (!c.cfg) c.cfg = JSON.parse(JSON.stringify(DEFAULT_CFG));
   c.cfg.scale = Object.assign({}, DEFAULT_CFG.scale, c.cfg.scale);
   c.cfg.weight = Object.assign({}, DEFAULT_CFG.weight, c.cfg.weight);
-  c.cfg.cats = Object.assign({ hidden: [], custom: [] }, c.cfg.cats);
+  c.cfg.cats = Object.assign({ hidden: [], custom: [], labels: {} }, c.cfg.cats);
   return c.cfg;
 }
 const customOf = (c, k) => cfg(c).cats.custom.find(x => x.id === k);
 function typeOf(c, k) {
-  if (TYPES[k]) return TYPES[k];
+  if (TYPES[k]) {
+    const l = c && cfg(c).cats.labels[k];
+    return l ? { ...TYPES[k], label: l, long: l, renamed: true } : TYPES[k];
+  }
   const x = c && customOf(c, k);
   return x ? { label: x.label, long: x.label, icon: KINDS[x.kind].icon, custom: true, kind: x.kind, unit: x.unit || '', high: x.high !== false } : null;
 }
@@ -86,7 +89,7 @@ function kindOf(c, k) {
 const catKeys = c => [...BUILTIN, ...cfg(c).cats.custom.map(x => x.id)];
 const visKeys = c => catKeys(c).filter(k => !cfg(c).cats.hidden.includes(k));
 const weighable = (c, k) => ['note', 'hu', 'vh'].includes(kindOf(c, k));
-const shortOf = (c, k) => SHORT[k] || (typeOf(c, k) || { label: k }).label;
+const shortOf = (c, k) => (c && cfg(c).cats.labels[k]) || SHORT[k] || (typeOf(c, k) || { label: k }).label;
 const scaleOf = (c, t) => kindOf(c, t) === 'note' ? (cfg(c).scale[t] || 'grade') : null;
 const valsFor = (c, t) => kindOf(c, t) === 'note' ? SCALES[scaleOf(c, t)] : TYPES[t].vals;
 const toPm = v => ({ '1': '+', '2': '+', '3': '~', '4': '-', '5': '-' }[v] || v);
@@ -687,7 +690,7 @@ function viewCats(c) {
     const t = typeOf(c, k), off = hidden.includes(k), n = t.custom ? data.entries.filter(e => e.c === c.id && e.t === k).length : 0;
     return `<div class="mrow${off ? ' off' : ''}">
       <span class="licon">${ICON[t.icon]}</span>
-      <span class="grow"><span class="ctitle">${esc(t.label)}</span><span class="csub">${esc(desc(k))}${t.custom && n ? ` · ${plural(n, 'Eintrag', 'Einträge')}` : ''}</span></span>
+      <button class="grow catname" data-a="catEdit" data-t="${k}" aria-label="${esc(t.label)} bearbeiten"><span class="ctitle">${esc(t.label)} <span class="pen">${ICON.pen}</span></span><span class="csub">${esc(desc(k))}${t.renamed ? ' · Standard: ' + esc(TYPES[k].label) : ''}${t.custom && n ? ` · ${plural(n, 'Eintrag', 'Einträge')}` : ''}</span></button>
       <button class="mbtn${off ? '' : ' on'}" data-a="catToggle" data-t="${k}" aria-label="${off ? 'Einblenden' : 'Ausblenden'}">${off ? ICON.eyeOff : ICON.eye}</button>
       ${t.custom ? `<button class="mbtn del" data-a="catDelete" data-t="${k}" aria-label="Löschen">${ICON.trash}</button>` : '<span class="mbtn ghost"></span>'}
     </div>`;
@@ -700,8 +703,39 @@ function viewCats(c) {
     <div class="section">Eigene Kategorien</div>
     ${custom.length ? `<div class="card">${custom.map(row).join('')}</div>` : ''}
     <button class="btn primary block${custom.length ? ' mt' : ''}" data-a="catAdd">${ICON.plus} Eigene Kategorie</button>
-    <p class="fine">Mit dem Auge blendest du eine Kategorie aus. Ihre Einträge bleiben erhalten. Eigene Kategorien kannst du auch löschen, dann werden ihre Einträge mit entfernt.</p>
+    <p class="fine">Tippe auf einen Namen, um die Kategorie umzubenennen oder anzupassen. Mit dem Auge blendest du eine Kategorie aus. Ihre Einträge bleiben erhalten. Eigene Kategorien kannst du auch löschen, dann werden ihre Einträge mit entfernt.</p>
     <p class="fine">Beispiele: „Weitsprung“ als Messwert in m, „60-m-Lauf“ in s (niedriger ist besser), „Referat“ als Note, „Beobachtung“ als Notiz.</p>`;
+}
+
+function catEditSheet(c, k) {
+  const t = typeOf(c, k), kind = kindOf(c, k), x = customOf(c, k);
+  let scale = scaleOf(c, k), high = t.high !== false;
+  const opts = () => `
+    ${kind === 'note' ? `<div class="seg kindseg"><button type="button" data-scale="grade" class="${scale === 'grade' ? 'on' : ''}">Note 1 – 5</button><button type="button" data-scale="pm" class="${scale === 'pm' ? 'on' : ''}">+ ~ −</button></div>` : ''}
+    ${kind === 'num' ? `<div class="seg kindseg"><button type="button" data-high="1" class="${high ? 'on' : ''}">Höher ist besser</button><button type="button" data-high="0" class="${high ? '' : 'on'}">Niedriger ist besser</button></div>` : ''}`;
+  return modal({
+    title: 'Kategorie bearbeiten', ok: 'Speichern',
+    text: t.custom ? KINDS[kind].label : `Standardkategorie „${TYPES[k].label}“`,
+    body: `<input name="label" value="${esc(t.label)}" placeholder="${esc(t.custom ? 'Name' : TYPES[k].label)}" autocomplete="off" autocapitalize="sentences">
+      ${kind === 'num' ? `<input name="unit" value="${esc(t.unit || '')}" placeholder="Einheit, z. B. m, s, cm, Punkte" autocomplete="off">` : ''}
+      <div class="kindbox">${opts()}</div>
+      ${!t.custom && t.renamed ? `<button type="button" class="link small left" data-reset="1">Ursprünglichen Namen „${esc(TYPES[k].label)}“ wiederherstellen</button>` : ''}`,
+    mount(d) {
+      const box = d.querySelector('.kindbox');
+      box.addEventListener('click', e => {
+        const b = e.target.closest('button'); if (!b) return;
+        if (b.dataset.scale) scale = b.dataset.scale;
+        if (b.dataset.high) high = b.dataset.high === '1';
+        box.innerHTML = opts();
+      });
+      const r = d.querySelector('[data-reset]');
+      if (r) r.addEventListener('click', () => { d.querySelector('[name=label]').value = TYPES[k].label; r.remove(); });
+    },
+    collect(d) {
+      const u = d.querySelector('[name=unit]');
+      return { label: d.querySelector('[name=label]').value.trim(), scale, high, unit: u ? u.value.trim() : undefined };
+    }
+  });
 }
 
 function catSheet() {
@@ -789,7 +823,7 @@ function viewStudent(c, sid) {
         const [, label, cls0] = valInfo(e.t, e.v);
         const t = typeOf(c, e.t), kind = kindOf(c, e.t);
         const cls = kind === 'num' || kind === 'text' ? 'n' : cls0;
-        const title = e.t === 'vh' ? 'Verhalten: ' + vhLabel(e.v) : t.long;
+        const title = e.t === 'vh' ? t.label + ': ' + vhLabel(e.v) : t.long;
         const note = kind === 'text' ? e.v : e.n;
         const badge = e.t === 'vh' || kind === 'text' ? ''
           : kind === 'num' ? `<span class="badge n">${esc(withUnit(e.v, t.unit))}</span>`
@@ -804,7 +838,7 @@ function viewStudent(c, sid) {
   return `<div class="phero"><span class="av lg ${avc(s.name)}">${esc(initials(s.name))}</span>
       <div><div class="eyebrow">${esc(c.name)}${s.from ? ' · aus ' + esc(s.from) : ''}</div><h1>${esc(s.name)}</h1>
       ${isRisk(st) ? `<div class="riskpill">${WARN} Gesamtnote über 4</div>` : ''}</div></div>
-    <button class="btn secondary block" data-a="vhStudent">${ICON.smile} Verhalten notieren</button>
+    ${visKeys(c).includes('vh') ? `<button class="btn secondary block" data-a="vhStudent">${ICON.smile} ${esc(typeOf(c, 'vh').label)} notieren</button>` : ''}
     ${tiles}
     ${trendCard(c, sid)}
     <div class="cats filters">${chips}</div>
@@ -883,12 +917,12 @@ function modal(o) {
 }
 $('#dlg').addEventListener('click', e => { if (e.target === e.currentTarget) e.currentTarget.close(); });
 
-function behaviorSheet(name, start) {
+function behaviorSheet(name, start, title = 'Verhalten') {
   let lvl = VH_LEVELS.includes(start) ? start : 'p';
   const sel = new Set();
   const tagsHTML = () => VH_TAGS[vhPol(lvl)].map(t => `<button type="button" class="tag ${sel.has(t) ? 'on ' + vhCls(lvl) : ''}" data-tag="${esc(t)}">${esc(t)}</button>`).join('');
   return modal({
-    title: 'Verhalten', text: name, ok: 'Speichern',
+    title, text: name, ok: 'Speichern',
     body: `<div class="faces">${TYPES.vh.vals.map(([v, l, cls]) => `<button type="button" class="facebtn ${cls}" data-lvl="${v}">${face(v, 34)}<span>${l}</span></button>`).join('')}</div>
       <div class="tags"></div>
       <textarea name="note" rows="2" placeholder="Notiz (optional)"></textarea>`,
@@ -1227,7 +1261,7 @@ const actions = {
     const s = c.students.find(x => x.id === d.s); if (!s) return;
     const type = curType(c);
     if (type === 'vh') {
-      const r = await behaviorSheet(s.name, d.v); if (!r) return;
+      const r = await behaviorSheet(s.name, d.v, typeOf(c, 'vh').label); if (!r) return;
       data.entries.push({ id: uid(), c: c.id, s: s.id, d: ui.date, t: type, v: r.v, n: r.n });
       toast('Verhalten notiert: ' + vhLabel(r.v));
     } else {
@@ -1263,6 +1297,19 @@ const actions = {
     const h = cfg(c).cats.hidden, i = h.indexOf(d.t);
     if (i >= 0) h.splice(i, 1); else h.push(d.t);
     await save(); render();
+  },
+  async catEdit(d) {
+    const c = currentClass(); if (!c) return;
+    const k = d.t, t = typeOf(c, k); if (!t) return;
+    const r = await catEditSheet(c, k); if (!r) return;
+    const cf = cfg(c), x = customOf(c, k);
+    if (x) {
+      if (r.label) x.label = r.label;
+      if (x.kind === 'num') { x.unit = r.unit || ''; x.high = r.high; }
+    } else if (!r.label || r.label === TYPES[k].label) delete cf.cats.labels[k];
+    else cf.cats.labels[k] = r.label;
+    if (kindOf(c, k) === 'note' && r.scale) cf.scale[k] = r.scale;
+    await save(); render(); toast('Gespeichert');
   },
   async catAdd() {
     const c = currentClass(); if (!c) return;
@@ -1350,7 +1397,7 @@ const actions = {
   },
   async vhStudent() {
     const c = currentClass(); const s = c && c.students.find(x => x.id === currentStudentId()); if (!s) return;
-    const r = await behaviorSheet(s.name, 'p'); if (!r) return;
+    const r = await behaviorSheet(s.name, 'p', typeOf(c, 'vh').label); if (!r) return;
     data.entries.push({ id: uid(), c: c.id, s: s.id, d: today(), t: 'vh', v: r.v, n: r.n });
     await save(); render(); toast('Verhalten notiert');
   },
@@ -1381,7 +1428,7 @@ const actions = {
   },
   async delEntry(d) {
     const e = data.entries.find(x => x.id === d.v); if (!e) return;
-    const what = e.t === 'vh' ? 'Verhalten: ' + vhLabel(e.v) + (e.n ? ' – ' + e.n : '')
+    const what = e.t === 'vh' ? typeOf(getClass(e.c), 'vh').label + ': ' + vhLabel(e.v) + (e.n ? ' – ' + e.n : '')
       : (() => { const c = getClass(e.c), t = typeOf(c, e.t) || { long: e.t }, kind = kindOf(c, e.t);
           return `${t.long}: ${kind === 'num' ? withUnit(e.v, t.unit) : kind === 'text' ? e.v : valInfo(e.t, e.v)[1]}`; })();
     if (!await modal({ title: 'Eintrag löschen?', text: `${fmtDayLong(e.d)}\n${what}`, ok: 'Löschen', danger: true })) return;
@@ -1394,8 +1441,8 @@ const actions = {
     const head = ['Name'];
     for (const k of keys) {
       const t = typeOf(c, k), kind = kindOf(c, k);
-      if (k === 'hu') head.push('HÜ gebracht', 'HÜ nicht gebracht');
-      else if (k === 'vh') head.push('Verhalten sehr gut', 'Verhalten gut', 'Verhalten weniger gut', 'Verhalten schlecht');
+      if (k === 'hu') head.push(`${t.label} gebracht`, `${t.label} nicht gebracht`);
+      else if (k === 'vh') head.push(`${t.label} sehr gut`, `${t.label} gut`, `${t.label} weniger gut`, `${t.label} schlecht`);
       else if (kind === 'num') head.push(`${t.label} Bestwert${t.unit ? ' (' + t.unit + ')' : ''}`, `${t.label} zuletzt`, `${t.label} Messungen`);
       else if (kind === 'text') head.push(`${t.label} Anzahl`, `${t.label} zuletzt`);
       else head.push(`${t.label} Ø`, `${t.label} Einträge`);
