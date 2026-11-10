@@ -121,6 +121,7 @@ main {
   flex: 1; min-height: 0; width: 100%;
   overflow-y: auto; overflow-x: hidden;
   -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
+  scrollbar-width: none;
   padding: 0 max(16px, calc((100% - 600px) / 2)) calc(40px + env(safe-area-inset-bottom));
 }
 #view.enter { animation: fade .22s ease-out; }
@@ -620,3 +621,12 @@ a.btn { text-decoration: none; }
 .srow.five .vals { gap: 4px; }
 .srow.five .v { width: 34px; }
 .srow.five .v.absb { width: 32px; margin-left: 2px; }
+
+/* ---------- Wie eine native App: keine sichtbaren Scrollbalken ---------- */
+main::-webkit-scrollbar, dialog::-webkit-scrollbar, .cats::-webkit-scrollbar, .tbl-wrap::-webkit-scrollbar { display: none; width: 0; height: 0; }
+dialog { scrollbar-width: none; }
+.sechead { display: flex; align-items: center; justify-content: space-between; }
+.sechead .section { margin-right: 8px; }
+.sechead .link { display: inline-flex; align-items: center; gap: 5px; margin-top: 16px; }
+.sechead .link svg { width: 15px; height: 15px; }
+a.inl { color: inherit; text-decoration: underline; text-decoration-color: var(--line-2); text-underline-offset: 2px; }

@@ -8,7 +8,7 @@ const PUBLIC_KEY = {
   x: 'kHkzCWyGjuxGxGf_3AMH2F_MKEWEjH1hfCnBf7K1Imo',
   y: 'Fv556fMFzralLJTUqYxNxI68b9Fd4ctkLzgn07BzKj0'
 };
-const APP_VERSION = '3.2';
+const APP_VERSION = '3.3';
 
 const TYPES = {
   ma: { label: 'Mitarbeit', long: 'Mitarbeit', icon: 'spark', vals: [['+', '+', 'g'], ['~', '~', 'm'], ['-', '−', 'b']] },
@@ -96,8 +96,8 @@ const toPm = v => ({ '1': '+', '2': '+', '3': '~', '4': '-', '5': '-' }[v] || v)
 const fmtW = w => w === 0.5 ? '½' : String(w).replace('.', ',');
 const fmtVal = v => String(v).replace('.', ',');
 // Abwesenheit: wird eingetragen, zählt aber nicht zur Note
-const ABS = { A: 'abwesend', AE: 'abwesend, entschuldigt' };
-const isAbs = v => v === 'A' || v === 'AE';
+const ABS = { A: 'abwesend', AN: 'anwesend (ohne Note)', AE: 'abwesend' };
+const isAbs = v => v === 'A' || v === 'AN' || v === 'AE';
 const withUnit = (v, u) => fmtVal(v) + (u ? ' ' + u : '');
 function weightSummary(c) {
   const w = cfg(c).weight, keys = visKeys(c).filter(k => weighable(c, k) && (w[k] || 0) > 0);
@@ -310,22 +310,13 @@ function viewHome() {
   const visible = [...data.classes].filter(c => !c.hidden).sort(byName);
   const hidden = [...data.classes].filter(c => c.hidden).sort(byName);
   const list = visible.length ? `<div class="card">${visible.map(c => classItem(c)).join('')}</div>`
-    : `<div class="card empty"><h2>Alle Klassen ausgeblendet</h2><p>Blende unten eine Klasse wieder ein oder lege eine neue an.</p></div>`;
-  const hiddenBlock = hidden.length ? `
-    <div class="hidrow">
-      <button class="link" data-a="toggleHidden">${ui.showHidden ? ICON.eyeOff : ICON.eye} ${ui.showHidden ? 'Ausgeblendete verbergen' : `Ausgeblendete anzeigen (${hidden.length})`}</button>
-    </div>
-    ${ui.showHidden ? `<div class="card dimcard">${hidden.map(c => classItem(c, true)).join('')}</div>` : ''}` : '';
+    : `<div class="card empty"><h2>Alle Klassen ausgeblendet</h2><p>Unter „Verwalten“ blendest du sie wieder ein.</p></div>`;
   return hero + list + `
     <div class="pill-row">
       <button class="btn secondary" data-a="addClass">${ICON.plus} Neue Klasse</button>
-      <button class="btn secondary" data-a="importAny">${ICON.upload} Importieren</button>
+      <button class="btn secondary" data-a="goManage">${ICON.list} Verwalten</button>
     </div>
-    <div class="pill-row tight">
-      ${data.classes.length > 1 ? `<button class="btn secondary" data-a="goCompose">${ICON.merge} Gruppe bilden</button>` : ''}
-      <button class="btn secondary${data.classes.length > 1 ? '' : ' span2'}" data-a="goManage">${ICON.list} Verwalten</button>
-    </div>
-    ${hiddenBlock}`;
+    ${hidden.length ? `<div class="hidrow"><button class="link" data-a="goManage">${ICON.eyeOff} ${plural(hidden.length, 'Klasse', 'Klassen')} ausgeblendet</button></div>` : ''}`;
 }
 
 function classItem(c, isHidden = false) {
@@ -425,7 +416,7 @@ function rowHTML(c, s) {
     const vals = valsFor(c, type);
     btns = vals.map(([v, label, vc]) =>
       `<button class="v ${vc} ${curV === v ? 'on' : ''}" data-a="mark" data-s="${s.id}" data-v="${v}" aria-label="${esc(t.label + ' ' + label)}">${glyph(label)}</button>`).join('')
-      + (kind === 'note' ? `<button class="v absb${cur && isAbs(cur.v) ? ' on' : ''}" data-a="absMenu" data-s="${s.id}" aria-label="Abwesenheit">${cur && isAbs(cur.v) ? cur.v : 'A'}</button>` : '');
+      + (kind === 'note' ? `<button class="v absb${cur && isAbs(cur.v) ? ' on' : ''}" data-a="absMenu" data-s="${s.id}" aria-label="Anwesenheit">${cur && isAbs(cur.v) ? (cur.v === 'AE' ? 'A' : cur.v) : 'A'}</button>` : '');
     cls = vals.length + (kind === 'note' ? 1 : 0) > 3 ? ' five' : '';
   }
   return `<div class="srow${cls}" data-row="${s.id}">
@@ -434,7 +425,7 @@ function rowHTML(c, s) {
 }
 
 function stats(c, sid) {
-  const st = { n: 0, avg: {}, cnt: {}, list: {}, nums: {}, texts: {}, hu: { y: 0, n: 0 }, vh: { pp: 0, p: 0, n: 0, nn: 0 }, abs: { A: 0, AE: 0 }, absDays: {}, total: null };
+  const st = { n: 0, avg: {}, cnt: {}, list: {}, nums: {}, texts: {}, hu: { y: 0, n: 0 }, vh: { pp: 0, p: 0, n: 0, nn: 0 }, abs: { A: 0, AN: 0 }, absDays: {}, total: null };
   const acc = {}, vis = visKeys(c);
   for (const k of catKeys(c)) { acc[k] = { s: 0, w: 0 }; st.cnt[k] = { '+': 0, '~': 0, '-': 0 }; st.list[k] = []; st.nums[k] = { n: 0, best: null, last: null, lastD: '' }; st.texts[k] = { n: 0, last: '', lastD: '' }; }
   const es = entriesOf(c.id, sid).sort((a, b) => a.d.localeCompare(b.d));
@@ -452,7 +443,7 @@ function stats(c, sid) {
     if (kind === 'text') { const x = st.texts[e.t]; x.n++; x.last = e.v; x.lastD = e.d; continue; }
     const w = e.w || 1, num = e.t === 'vh' ? VH_NUM[e.v] : NUM[e.v];
     if (num != null) { acc[e.t].s += num * w; acc[e.t].w += w; }
-    if (isAbs(e.v)) { if (st.absDays[e.d] !== 'AE') st.absDays[e.d] = e.v; continue; }
+    if (isAbs(e.v)) { if (st.absDays[e.d] !== 'A') st.absDays[e.d] = e.v === 'AN' ? 'AN' : 'A'; continue; }
     if (e.t === 'hu' || e.t === 'vh') st[e.t][e.v] = (st[e.t][e.v] || 0) + 1;
     else {
       st.cnt[e.t][toPm(e.v)]++;
@@ -470,7 +461,7 @@ function stats(c, sid) {
   Object.values(st.absDays).forEach(v => st.abs[v]++);
   return st;
 }
-const gradeCls = g => g == null ? '' : g < 2.5 ? 'g-t' : g < 4.5 ? 'm-t' : 'b-t';
+const gradeCls = g => g == null ? '' : g < 2.5 ? 'g-t' : g <= 4 ? 'm-t' : 'b-t';
 
 /* ---------- Trend & Warnung ---------- */
 const RISK = 4; // Gesamtnote über 4 → Rufzeichen
@@ -591,15 +582,11 @@ function viewOverview(c) {
       ${(() => { const tr = trendOf(c, s.id); return `<div class="otrend">
         ${st.total == null ? '<span class="tot">Ø –</span>' : `<span class="tot ${gradeCls(st.total)}">Ø ${fmtNum(st.total)}${trendIcon(tr)}</span>`}
         ${sparkHTML(tr)}</div>`; })()}
-      <div class="metrics">${visKeys(c).map(k => `<span class="met"><span class="ml">${esc(shortOf(c, k))}</span><span class="mv">${metricHTML(c, st, k)}</span></span>`).join('')}${st.abs.A + st.abs.AE ? `<span class="met absmet"><span class="ml">Abwesend</span><span class="mv">${st.abs.A ? `<span class="b-t">A ${st.abs.A}</span>` : ''}${st.abs.AE ? `<span>AE ${st.abs.AE}</span>` : ''}</span></span>` : ''}</div></a>`;
+      <div class="metrics">${visKeys(c).map(k => `<span class="met"><span class="ml">${esc(shortOf(c, k))}</span><span class="mv">${metricHTML(c, st, k)}</span></span>`).join('')}${st.abs.A + st.abs.AN ? `<span class="met absmet"><span class="ml">Anwesenheit</span><span class="mv">${st.abs.A ? `<span class="b-t">A ${st.abs.A}</span>` : ''}${st.abs.AN ? `<span>AN ${st.abs.AN}</span>` : ''}</span></span>` : ''}</div></a>`;
   }).join('');
   return `<div class="card">${rows}</div>
-    <p class="legend">Ø = gewichtete Gesamtnote (${esc(weightSummary(c))}).${visKeys(c).includes('hu') ? ' HÜ zeigt „gebracht / gesamt“.' : ''}${visKeys(c).some(k => kindOf(c, k) === 'num') ? ' Messwerte zeigen den Bestwert.' : ''}</p>
-    <div class="stack">
-      <a class="btn secondary block" href="#/b/${c.id}">${ICON.sliders} Bewertung & Gewichtung</a>
-      <button class="btn secondary block" data-a="exportTrends">${ICON.download} Trends exportieren (PDF / Excel)</button>
-      <button class="btn secondary block" data-a="exportOverview">${ICON.download} Übersicht exportieren (CSV)</button>
-    </div>`;
+    <p class="legend">Ø = gewichtete Gesamtnote (<a class="inl" href="#/b/${c.id}">${esc(weightSummary(c))}</a>).${visKeys(c).includes('hu') ? ' HÜ zeigt „gebracht / gesamt“.' : ''}${visKeys(c).some(k => kindOf(c, k) === 'num') ? ' Messwerte zeigen den Bestwert.' : ''}</p>
+    <button class="btn secondary block" data-a="exportMenu">${ICON.download} Exportieren</button>`;
 }
 
 /* ---------- Gruppe aus mehreren Klassen ---------- */
@@ -814,8 +801,7 @@ function viewStudent(c, sid) {
   const tiles = `<div class="tiles">
     <a class="tile total" href="#/b/${c.id}"><div class="k">Gesamtnote</div><div class="val">${st.total == null ? '–' : fmtNum(st.total)}</div><div class="sub">${esc(weightSummary(c))}</div></a>
     ${visKeys(c).map(tile).join('')}
-    <div class="tile"><div class="k">Abwesenheiten</div><div class="val">${st.abs.A + st.abs.AE || '–'}</div><div class="sub">${st.abs.A + st.abs.AE ? `${st.abs.A} unentschuldigt (A) · ${st.abs.AE} entschuldigt (AE)` : 'keine'}</div></div>
-    <div class="tile"><div class="k">Einträge</div><div class="val">${st.n}</div><div class="sub">insgesamt</div></div>
+    <div class="tile"><div class="k">Abwesenheiten</div><div class="val${st.abs.A ? ' b-t' : ''}">${st.abs.A || '–'}</div><div class="sub">${st.abs.AN ? `${st.abs.AN}× anwesend ohne Note` : st.abs.A ? 'Tage abwesend' : 'keine'}</div></div>
   </div>`;
   const filt = ui.filter === 'all' || visKeys(c).includes(ui.filter) ? ui.filter : 'all';
   const chips = [['all', 'Alle', null], ...visKeys(c).map(k => [k, typeOf(c, k).label, typeOf(c, k).icon])].map(([k, l, ic]) =>
@@ -840,7 +826,7 @@ function viewStudent(c, sid) {
             : `<button class="badge ${cls}" data-a="entryWeight" data-v="${e.id}" aria-label="Gewichtung ändern">${glyph(label)}${e.w && e.w !== 1 ? `<small>×${fmtW(e.w)}</small>` : ''}</button>`;
         return `<div class="erow"><span class="eicon ${e.t === 'vh' ? vhCls(e.v) : cls}">${e.t === 'vh' ? face(e.v, 22) : ICON[t.icon]}</span>
           ${kind === 'text' ? `<div class="etext"><div class="etitle">${esc(title)}</div><div class="enote">${esc(note)}</div></div>`
-            : `<button class="etext ebtn" data-a="entryNote" data-v="${e.id}" aria-label="Anmerkung bearbeiten"><div class="etitle">${esc(title)}</div>${note ? `<div class="enote">${esc(note)}</div>` : '<div class="eadd">+ Anmerkung</div>'}</button>`}
+            : `<button class="etext ebtn" data-a="entryNote" data-v="${e.id}" aria-label="Anmerkung bearbeiten"><div class="etitle">${esc(title)}</div>${note ? `<div class="enote">${esc(note)}</div>` : ''}</button>`}
           ${badge}
           <button class="del" data-a="delEntry" data-v="${e.id}" aria-label="Eintrag löschen">${ICON.close}</button></div>`;
       }).join('')}</div>`;
@@ -853,7 +839,7 @@ function viewStudent(c, sid) {
     ${tiles}
     ${trendCard(c, sid)}
     <div class="cats filters">${chips}</div>
-    ${es.some(e => weighable(c, e.t) && e.t !== 'vh') ? '<p class="fine">Tipp: Tippe auf einen Eintrag, um eine Anmerkung zu schreiben – oder auf die Note, um sie halb, doppelt oder dreifach zählen zu lassen.</p>' : ''}
+    ${es.some(e => weighable(c, e.t) && e.t !== 'vh') ? '<p class="fine">Eintrag antippen: Anmerkung · Note antippen: Gewichtung</p>' : ''}
     ${list}`;
 }
 
@@ -868,7 +854,7 @@ function trendCard(c, sid) {
       <span><span class="tw">${t.word[0].toUpperCase() + t.word.slice(1)}</span>
       <span class="ts">${d === 0 ? 'unverändert' : (d < 0 ? 'um ' + fmtNum(-d) + ' besser' : 'um ' + fmtNum(d) + ' schlechter')} als vor ${weeks === 1 ? 'einer Woche' : weeks + ' Wochen'}</span></span></div>`;
   }
-  return `<div class="section">Verlauf der Gesamtnote</div>
+  return `<div class="sechead"><div class="section">Verlauf der Gesamtnote</div><button class="link small" data-a="studentExport">${ICON.download} Exportieren</button></div>
     <div class="card chartcard">${head}${tr.ser.length >= 2 ? chartHTML(tr.ser) : ''}</div>`;
 }
 
@@ -883,9 +869,6 @@ function viewSettings() {
       <button class="lrow" data-a="importBackup"><span class="licon">${ICON.upload}</span><span class="grow">Sicherung importieren</span>${ICON.chev}</button>
     </div>
     <p class="fine">Alle Daten liegen nur auf diesem Gerät. Exportiere regelmäßig eine Sicherung, z. B. in die Dateien-App oder auf einen USB-Stick.</p>
-
-    <div class="section">Klassen</div>
-    <div class="card"><button class="lrow" data-a="goManage"><span class="licon">${ICON.list}</span><span class="grow">Klassen verwalten</span><span class="muted">${data.classes.filter(c => c.hidden).length ? data.classes.filter(c => c.hidden).length + ' ausgeblendet' : ''}</span>${ICON.chev}</button></div>
 
     <div class="section">Lizenz</div>
     <div class="card"><div class="lrow static"><span class="licon">${ICON.key}</span><span class="grow">${esc(license.info.n)}</span><span class="muted">${esc(exp)}</span></div></div>
@@ -999,12 +982,20 @@ async function saveFile(name, type, text) {
 const safeName = s => s.replace(/[^\wäöüÄÖÜß.-]+/g, '_');
 
 /* ---------- Trends: Daten für PDF und Excel ---------- */
-function trendRows(c) {
-  return [...c.students].sort(byName).map(s => {
-    const st = stats(c, s.id), tr = trendOf(c, s.id);
-    const then = tr.dir ? tr.ser.reduce((a, p) => p.d === tr.since ? p.v : a, null) : null;
-    return { s, st, tr, then, word: tr.dir ? TREND[tr.dir].word : 'zu wenige Einträge' };
-  });
+function trendRow(c, s) {
+  const st = stats(c, s.id), tr = trendOf(c, s.id);
+  const then = tr.dir ? tr.ser.reduce((a, p) => p.d === tr.since ? p.v : a, null) : null;
+  return { s, st, tr, then, word: tr.dir ? TREND[tr.dir].word : 'zu wenige Einträge' };
+}
+const trendRows = c => [...c.students].sort(byName).map(s => trendRow(c, s));
+function entryValue(c, e) {
+  const t = typeOf(c, e.t) || { label: e.t }, kind = kindOf(c, e.t);
+  if (isAbs(e.v)) return e.v === 'AN' ? 'AN – anwesend' : 'A – abwesend';
+  if (e.t === 'hu') return e.v === 'y' ? 'gebracht' : 'nicht gebracht';
+  if (e.t === 'vh') return vhLabel(e.v);
+  if (kind === 'num') return withUnit(e.v, t.unit);
+  if (kind === 'text') return e.v;
+  return valInfo(e.t, e.v)[1].replace('−', '-');
 }
 
 /* ---------- Excel (.xlsx) – selbst erzeugt, ohne Bibliothek ---------- */
@@ -1027,43 +1018,64 @@ function zipStore(files) {
   let p = 0; all.forEach(a => { out.set(a, p); p += a.length; });
   return out;
 }
-function trendsXLSX(c, rows) {
+// sheets: [{ name, head, rows, widths, num: [Spalten mit Zahlformat 0,0] }]
+function xlsxBook(sheets) {
   const x = v => String(v ?? '').replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch])).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
   const col = i => { let s = ''; i++; while (i) { const m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - 1) / 26); } return s; };
   const cell = (v, r, i, st) => {
-    const ref = col(i) + r;
     if (v === null || v === undefined || v === '') return '';
+    const ref = col(i) + r;
     if (typeof v === 'number' && isFinite(v)) return `<c r="${ref}"${st ? ` s="${st}"` : ''}><v>${Math.round(v * 1000) / 1000}</v></c>`;
     return `<c r="${ref}" t="inlineStr"${st ? ` s="${st}"` : ''}><is><t xml:space="preserve">${x(v)}</t></is></c>`;
   };
-  const sheet = (head, body, widths, numCols) => {
-    const r1 = `<row r="1">${head.map((h, i) => cell(h, 1, i, 1)).join('')}</row>`;
-    const rs = body.map((row, ri) => `<row r="${ri + 2}">${row.map((v, i) => cell(v, ri + 2, i, numCols.includes(i) && typeof v === 'number' ? 2 : 0)).join('')}</row>`).join('');
-    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols>${widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('')}</cols><sheetData>${r1}${rs}</sheetData></worksheet>`;
-  };
-  const noteKeys = visKeys(c).filter(k => kindOf(c, k) === 'note');
-  const head1 = ['Name', 'Herkunft', 'Gesamtnote', 'vor 4 Wochen', 'Veränderung (+ = besser)', 'Trend', 'Note über 4', 'Abwesend (A)', 'Abwesend entschuldigt (AE)', ...noteKeys.map(k => typeOf(c, k).label + ' Ø')];
-  const body1 = rows.map(r => [r.s.name, r.s.from || '', r.st.total, r.then, r.tr.dir ? -r.tr.delta : null, r.word, isRisk(r.st) ? 'ja' : 'nein', r.st.abs.A, r.st.abs.AE, ...noteKeys.map(k => r.st.avg[k])]);
-  const body2 = [];
-  rows.forEach(r => r.tr.ser.forEach(p => body2.push([r.s.name, p.d.split('-').reverse().join('.'), p.v])));
-  const s1 = sheet(head1, body1, [28, 12, 12, 13, 13, 20, 12, 13, 24, ...noteKeys.map(() => 14)], [2, 3, 4, ...noteKeys.map((_, i) => 9 + i)]);
-  const s2 = sheet(['Name', 'Datum', 'Gesamtnote'], body2, [28, 12, 12], [2]);
+  const sheetXml = sh => `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols>${sh.widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('')}</cols><sheetData><row r="1">${sh.head.map((h, i) => cell(h, 1, i, 1)).join('')}</row>${sh.rows.map((row, ri) => `<row r="${ri + 2}">${row.map((v, i) => cell(v, ri + 2, i, (sh.num || []).includes(i) && typeof v === 'number' ? 2 : 0)).join('')}</row>`).join('')}</sheetData></worksheet>`;
+  const R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
   const styles = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="1"><numFmt numFmtId="164" formatCode="0.0"/></numFmts><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE3EEEA"/></patternFill></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
   return zipStore([
-    ['[Content_Types].xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`],
-    ['_rels/.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`],
-    ['xl/workbook.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Trends" sheetId="1" r:id="rId1"/><sheet name="Verlauf" sheetId="2" r:id="rId2"/></sheets></workbook>`],
-    ['xl/_rels/workbook.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`],
-    ['xl/worksheets/sheet1.xml', s1],
-    ['xl/worksheets/sheet2.xml', s2],
+    ['[Content_Types].xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>${sheets.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')}<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`],
+    ['_rels/.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${R}/officeDocument" Target="xl/workbook.xml"/></Relationships>`],
+    ['xl/workbook.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="${R}"><sheets>${sheets.map((sh, i) => `<sheet name="${x(sh.name.slice(0, 31))}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('')}</sheets></workbook>`],
+    ['xl/_rels/workbook.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="${R}/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('')}<Relationship Id="rId${sheets.length + 1}" Type="${R}/styles" Target="styles.xml"/></Relationships>`],
+    ...sheets.map((sh, i) => [`xl/worksheets/sheet${i + 1}.xml`, sheetXml(sh)]),
     ['xl/styles.xml', styles]
+  ]);
+}
+const ddmmyyyy = iso => iso.split('-').reverse().join('.');
+const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+function classTrendsXLSX(c, rows) {
+  const noteKeys = visKeys(c).filter(k => kindOf(c, k) === 'note');
+  const ser = [];
+  rows.forEach(r => r.tr.ser.forEach(p => ser.push([r.s.name, ddmmyyyy(p.d), p.v])));
+  return xlsxBook([
+    { name: 'Trends', head: ['Name', 'Herkunft', 'Gesamtnote', 'vor 4 Wochen', 'Veränderung (+ = besser)', 'Trend', 'Note über 4', 'Abwesend (A)', 'Anwesend ohne Note (AN)', ...noteKeys.map(k => typeOf(c, k).label + ' Ø')],
+      rows: rows.map(r => [r.s.name, r.s.from || '', r.st.total, r.then, r.tr.dir ? -r.tr.delta : null, r.word, isRisk(r.st) ? 'ja' : 'nein', r.st.abs.A, r.st.abs.AN, ...noteKeys.map(k => r.st.avg[k])]),
+      widths: [28, 12, 12, 13, 22, 20, 12, 13, 22, ...noteKeys.map(() => 14)], num: [2, 3, 4, ...noteKeys.map((_, i) => 9 + i)] },
+    { name: 'Verlauf', head: ['Name', 'Datum', 'Gesamtnote'], rows: ser, widths: [28, 12, 12], num: [2] }
+  ]);
+}
+function studentTrendXLSX(c, s) {
+  const r = trendRow(c, s);
+  const es = entriesOf(c.id, s.id).filter(e => typeOf(c, e.t)).sort((a, b) => a.d.localeCompare(b.d));
+  const kv = [['Klasse', c.name + (s.from ? ` (aus ${s.from})` : '')], ['Gesamtnote', r.st.total], ['vor 4 Wochen', r.then], ['Veränderung (+ = besser)', r.tr.dir ? -r.tr.delta : null], ['Trend', r.word], ['Note über 4', isRisk(r.st) ? 'ja' : 'nein'], ['Abwesend (A)', r.st.abs.A], ['Anwesend ohne Note (AN)', r.st.abs.AN],
+    ...visKeys(c).map(k => {
+      const t = typeOf(c, k), kind = kindOf(c, k), st = r.st;
+      if (k === 'hu') { const T = st.hu.y + st.hu.n; return [t.label, T ? `${st.hu.y} von ${T} gebracht` : '']; }
+      if (k === 'vh') return [t.label, `sehr gut ${st.vh.pp} · gut ${st.vh.p} · weniger gut ${st.vh.n} · schlecht ${st.vh.nn}`];
+      if (kind === 'num') { const x = st.nums[k]; return [t.label + ' Bestwert', x.best == null ? '' : withUnit(x.best, t.unit)]; }
+      if (kind === 'text') return [t.label, plural(st.texts[k].n, 'Notiz', 'Notizen')];
+      return [t.label + ' Ø', st.avg[k]];
+    }), ['Gewichtung', weightSummary(c)]];
+  return xlsxBook([
+    { name: 'Übersicht', head: ['Kennzahl', 'Wert'], rows: kv, widths: [26, 40], num: [1] },
+    { name: 'Verlauf', head: ['Datum', 'Gesamtnote'], rows: r.tr.ser.map(p => [ddmmyyyy(p.d), p.v]), widths: [12, 12], num: [1] },
+    { name: 'Einträge', head: ['Datum', 'Kategorie', 'Wert', 'Gewicht', 'Anmerkung'], rows: es.map(e => [ddmmyyyy(e.d), typeOf(c, e.t).label, /^[1-5]$/.test(e.v) ? +e.v : entryValue(c, e), e.w || 1, e.t === 'vh' || kindOf(c, e.t) === 'text' ? (e.t === 'vh' ? e.n || '' : '') : e.n || '']), widths: [12, 22, 18, 9, 50], num: [] }
   ]);
 }
 
 /* ---------- PDF – selbst erzeugt, ohne Bibliothek (Standardschrift Helvetica) ---------- */
-function trendsPDF(c, rows) {
+function pdfKit() {
   const W = 595.28, H = 841.89, M = 40;
   const CP = { 0x20AC: 0x80, 0x201A: 0x82, 0x201E: 0x84, 0x2026: 0x85, 0x2018: 0x91, 0x2019: 0x92, 0x201C: 0x93, 0x201D: 0x94, 0x2022: 0x95, 0x2013: 0x96, 0x2014: 0x97, 0x2212: 0x2D, 0x00D7: 0xD7 };
   const win = str => [...String(str)].map(ch => { const u = ch.codePointAt(0); return u < 256 ? ch : CP[u] ? String.fromCharCode(CP[u]) : '?'; }).join('');
@@ -1071,106 +1083,199 @@ function trendsPDF(c, rows) {
   const wid = (str, size, bold) => [...String(str)].reduce((a, ch) => a + (/[il.,:;'|!\s]/.test(ch) ? .28 : /[mwMW]/.test(ch) ? .83 : /[A-ZÄÖÜ]/.test(ch) ? .67 : /[0-9]/.test(ch) ? .556 : .52), 0) * size * (bold ? 1.05 : 1);
   const fit = (str, max, size, bold) => { str = String(str); if (wid(str, size, bold) <= max) return str; while (str.length > 1 && wid(str + '…', size, bold) > max) str = str.slice(0, -1); return str + '…'; };
   const rgb = h => [1, 3, 5].map(i => (parseInt(h.slice(i, i + 2), 16) / 255).toFixed(3)).join(' ');
-  const COL = { ink: '#16181A', ink2: '#5E6369', ink3: '#9AA0A6', line: '#E4E2DC', acc: '#1F5C50', accS: '#E3EEEA', pos: '#2E7A4E', neg: '#B0402C', negS: '#F6E2DD', zebra: '#F7F6F3' };
+  const COL = { ink: '#16181A', ink2: '#5E6369', ink3: '#9AA0A6', line: '#E4E2DC', acc: '#1F5C50', accS: '#E3EEEA', pos: '#2E7A4E', mid: '#9A6B12', neg: '#B0402C', negS: '#F6E2DD', zebra: '#F7F6F3', card: '#F4F3EF' };
   const pages = []; let ops = [];
-  const text = (x, y, str, { size = 9.5, bold = false, color = COL.ink, align = 'left' } = {}) => {
-    const w = wid(str, size, bold), xx = align === 'right' ? x - w : align === 'center' ? x - w / 2 : x;
-    ops.push(`BT ${rgb(color)} rg /${bold ? 'F2' : 'F1'} ${size} Tf ${xx.toFixed(2)} ${(H - y).toFixed(2)} Td ${pdfStr(str)} Tj ET`);
+  const k = {
+    W, H, M, COL, wid, fit,
+    gc: g => g == null ? COL.ink3 : g < 2.5 ? COL.pos : g <= 4 ? COL.mid : COL.neg,
+    tc: dir => dir === 'up' ? COL.pos : dir === 'down' ? COL.neg : COL.acc,
+    text(x, y, str, { size = 9.5, bold = false, color = COL.ink, align = 'left' } = {}) {
+      const w = wid(str, size, bold), xx = align === 'right' ? x - w : align === 'center' ? x - w / 2 : x;
+      ops.push(`BT ${rgb(color)} rg /${bold ? 'F2' : 'F1'} ${size} Tf ${xx.toFixed(2)} ${(H - y).toFixed(2)} Td ${pdfStr(str)} Tj ET`);
+    },
+    rect(x, y, w, h, color) { ops.push(`${rgb(color)} rg ${x.toFixed(2)} ${(H - y - h).toFixed(2)} ${w.toFixed(2)} ${h.toFixed(2)} re f`); },
+    line(pts, color, width = 1, dash) { ops.push(`${rgb(color)} RG ${width} w 1 J 1 j ${dash ? `[${dash}] 0 d ` : ''}${pts.map((p, i) => `${p[0].toFixed(2)} ${(H - p[1]).toFixed(2)} ${i ? 'l' : 'm'}`).join(' ')} S${dash ? ' [] 0 d' : ''}`); },
+    circle(x, y, r, color) { const q = .5523 * r, yy = H - y, f = n => n.toFixed(2); ops.push(`${rgb(color)} rg ${f(x + r)} ${f(yy)} m ${f(x + r)} ${f(yy + q)} ${f(x + q)} ${f(yy + r)} ${f(x)} ${f(yy + r)} c ${f(x - q)} ${f(yy + r)} ${f(x - r)} ${f(yy + q)} ${f(x - r)} ${f(yy)} c ${f(x - r)} ${f(yy - q)} ${f(x - q)} ${f(yy - r)} ${f(x)} ${f(yy - r)} c ${f(x + q)} ${f(yy - r)} ${f(x + r)} ${f(yy - q)} ${f(x + r)} ${f(yy)} c f`); },
+    arrow(x, y, dir, s = 1) {
+      const col = dir === 'up' ? COL.pos : dir === 'down' ? COL.neg : COL.ink3, L = (a, b) => k.line(a.map(p => [x + p[0] * s, y + p[1] * s]), col, 1.6 * s);
+      if (dir === 'up') { L([[0, 4], [9, -4]]); L([[4, -4], [9, -4], [9, 1]]); }
+      else if (dir === 'down') { L([[0, -4], [9, 4]]); L([[4, 4], [9, 4], [9, -1]]); }
+      else { L([[0, 0], [10, 0]]); L([[6, -3.5], [10, 0], [6, 3.5]]); }
+    },
+    warn(x, y) { k.circle(x + 5, y - 3.2, 5, COL.neg); k.text(x + 5, y - 0.2, '!', { size: 7.5, bold: true, color: '#FFFFFF', align: 'center' }); },
+    spark(x, y, w, h, ser, dir) {
+      k.rect(x, y, w, h, '#FBFAF8');
+      const yv = v => y + (Math.min(5, Math.max(1, v)) - 1) / 4 * h;
+      k.rect(x, yv(4), w, y + h - yv(4), COL.negS);
+      if (ser.length < 2) return false;
+      const t0 = dt(ser[0].d).getTime(), span = Math.max(1, dt(ser[ser.length - 1].d).getTime() - t0);
+      const pts = ser.map(p => [x + (dt(p.d).getTime() - t0) / span * w, yv(p.v)]);
+      k.line(pts, k.tc(dir), 1.4); k.circle(pts[pts.length - 1][0], pts[pts.length - 1][1], 1.8, k.tc(dir));
+      return true;
+    },
+    page() { pages.push(ops.join('\n')); ops = []; },
+    build(title, footerLeft) {
+      if (ops.length) k.page();
+      pages.forEach((pg, i) => { ops = []; k.text(M, H - 22, footerLeft, { size: 7.5, color: COL.ink3 }); k.text(W - M, H - 22, `Seite ${i + 1} von ${pages.length}`, { size: 7.5, color: COL.ink3, align: 'right' }); pages[i] = pg + '\n' + ops.join('\n'); });
+      const objs = [], add = s2 => { objs.push(s2); return objs.length; };
+      const catalog = add(''), pagesId = add('');
+      const f1 = add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');
+      const f2 = add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
+      const kids = pages.map(content => {
+        const cs = add(`<< /Length ${content.length} >>\nstream\n${content}\nendstream`);
+        return add(`<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${W} ${H}] /Resources << /Font << /F1 ${f1} 0 R /F2 ${f2} 0 R >> >> /Contents ${cs} 0 R >>`);
+      });
+      objs[catalog - 1] = `<< /Type /Catalog /Pages ${pagesId} 0 R >>`;
+      objs[pagesId - 1] = `<< /Type /Pages /Kids [${kids.map(id => id + ' 0 R').join(' ')}] /Count ${kids.length} >>`;
+      const info = add(`<< /Title ${pdfStr(title)} /Producer (Klassenbuch) >>`);
+      let out = '%PDF-1.4\n%\xE2\xE3\xCF\xD3\n';
+      const offs = [];
+      objs.forEach((o, i) => { offs.push(out.length); out += `${i + 1} 0 obj\n${o}\nendobj\n`; });
+      const xref = out.length;
+      out += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n` + offs.map(o => String(o).padStart(10, '0') + ' 00000 n \n').join('');
+      out += `trailer\n<< /Size ${objs.length + 1} /Root ${catalog} 0 R /Info ${info} 0 R >>\nstartxref\n${xref}\n%%EOF`;
+      const bytes = new Uint8Array(out.length);
+      for (let i = 0; i < out.length; i++) bytes[i] = out.charCodeAt(i) & 255;
+      return bytes;
+    }
   };
-  const rect = (x, y, w, h, color) => ops.push(`${rgb(color)} rg ${x.toFixed(2)} ${(H - y - h).toFixed(2)} ${w.toFixed(2)} ${h.toFixed(2)} re f`);
-  const line = (pts, color, width = 1) => ops.push(`${rgb(color)} RG ${width} w 1 J 1 j ${pts.map((p, i) => `${p[0].toFixed(2)} ${(H - p[1]).toFixed(2)} ${i ? 'l' : 'm'}`).join(' ')} S`);
-  const circle = (x, y, r, color) => { const k = .5523 * r, yy = H - y; ops.push(`${rgb(color)} rg ${(x + r).toFixed(2)} ${yy.toFixed(2)} m ${(x + r).toFixed(2)} ${(yy + k).toFixed(2)} ${(x + k).toFixed(2)} ${(yy + r).toFixed(2)} ${x.toFixed(2)} ${(yy + r).toFixed(2)} c ${(x - k).toFixed(2)} ${(yy + r).toFixed(2)} ${(x - r).toFixed(2)} ${(yy + k).toFixed(2)} ${(x - r).toFixed(2)} ${yy.toFixed(2)} c ${(x - r).toFixed(2)} ${(yy - k).toFixed(2)} ${(x - k).toFixed(2)} ${(yy - r).toFixed(2)} ${x.toFixed(2)} ${(yy - r).toFixed(2)} c ${(x + k).toFixed(2)} ${(yy - r).toFixed(2)} ${(x + r).toFixed(2)} ${(yy - k).toFixed(2)} ${(x + r).toFixed(2)} ${yy.toFixed(2)} c f`); };
-  const arrow = (x, y, dir) => {
-    const col = dir === 'up' ? COL.pos : dir === 'down' ? COL.neg : COL.ink3;
-    if (dir === 'up') { line([[x, y + 4], [x + 9, y - 4]], col, 1.6); line([[x + 4, y - 4], [x + 9, y - 4], [x + 9, y + 1]], col, 1.6); }
-    else if (dir === 'down') { line([[x, y - 4], [x + 9, y + 4]], col, 1.6); line([[x + 4, y + 4], [x + 9, y + 4], [x + 9, y - 1]], col, 1.6); }
-    else { line([[x, y], [x + 10, y]], col, 1.6); line([[x + 6, y - 3.5], [x + 10, y], [x + 6, y + 3.5]], col, 1.6); }
-  };
-  // Spalten
-  const X = { name: M, tot: 222, then: 270, chg: 314, trend: 328, spark: 438, abs: W - M };
-  const SPW = 70, RH = 26;
-  const header = (first) => {
-    let y = M;
-    if (first) {
-      text(M, y + 8, 'TRENDS', { size: 8, bold: true, color: COL.acc }); y += 34;
-      text(M, y, c.name, { size: 22, bold: true }); y += 18;
-      text(M, y, `Stand ${fmtDayLong(today())} · Gesamtnote gewichtet: ${weightSummary(c)}`, { size: 9, color: COL.ink2 }); y += 14;
-      text(M, y, 'Trend = Gesamtnote heute im Vergleich zu vor 4 Wochen (+ = besser). Verlauf: oben = gute Note, rot = Bereich über 4.', { size: 7.5, color: COL.ink3 }); y += 11;
-      text(M, y, 'A / AE = Abwesenheiten unentschuldigt / entschuldigt (zählen nicht zur Note).', { size: 7.5, color: COL.ink3 }); y += 20;
-    } else y += 6;
-    rect(M, y, W - 2 * M, 22, COL.accS);
+  return k;
+}
+function pdfHead(k, eyebrow, title, lines) {
+  const { M, COL } = k;
+  let y = M;
+  k.text(M, y + 8, eyebrow, { size: 8, bold: true, color: COL.acc }); y += 34;
+  k.text(M, y, title, { size: 22, bold: true }); y += 18;
+  lines.forEach((l, i) => { k.text(M, y, l, { size: i ? 7.5 : 9, color: i ? COL.ink3 : COL.ink2 }); y += i ? 11 : 14; });
+  return y + 10;
+}
+
+function classTrendsPDF(c, rows) {
+  const k = pdfKit(), { W, H, M, COL } = k;
+  const X = { name: M, tot: 222, then: 270, chg: 314, trend: 328, spark: 438, abs: W - M }, SPW = 70, RH = 26;
+  const header = first => {
+    let y = first ? pdfHead(k, 'TRENDS', c.name, [`Stand ${fmtDayLong(today())} · Gesamtnote gewichtet: ${weightSummary(c)}`,
+      'Trend = Gesamtnote heute im Vergleich zu vor 4 Wochen (+ = besser). Verlauf: oben = gute Note, rot = Bereich über 4.',
+      'A = Tage abwesend · AN = anwesend ohne Note (beides zählt nicht zur Note).']) : M + 6;
+    k.rect(M, y, W - 2 * M, 22, COL.accS);
     const hy = y + 14.5, o = { size: 8, bold: true, color: COL.acc };
-    text(X.name + 8, hy, 'NAME', o); text(X.tot, hy, 'GESAMT', { ...o, align: 'right' }); text(X.then, hy, 'VOR 4 WO.', { ...o, align: 'right' });
-    text(X.chg, hy, '+/–', { ...o, align: 'right' }); text(X.trend, hy, 'TREND', o); text(X.spark, hy, 'VERLAUF', o); text(X.abs - 8, hy, 'A / AE', { ...o, align: 'right' });
+    k.text(X.name + 8, hy, 'NAME', o); k.text(X.tot, hy, 'GESAMT', { ...o, align: 'right' }); k.text(X.then, hy, 'VOR 4 WO.', { ...o, align: 'right' });
+    k.text(X.chg, hy, '+/–', { ...o, align: 'right' }); k.text(X.trend, hy, 'TREND', o); k.text(X.spark, hy, 'VERLAUF', o); k.text(X.abs - 8, hy, 'A / AN', { ...o, align: 'right' });
     return y + 22;
   };
   let y = header(true), idx = 0;
-  const flush = () => { pages.push(ops.join('\n')); ops = []; };
   for (const r of rows) {
-    if (y + RH > H - M - 20) { flush(); y = header(false); }
-    if (idx++ % 2) rect(M, y, W - 2 * M, RH, COL.zebra);
+    if (y + RH > H - M - 20) { k.page(); y = header(false); }
+    if (idx++ % 2) k.rect(M, y, W - 2 * M, RH, COL.zebra);
     const cy = y + RH / 2 + 3.2;
-    const risk = isRisk(r.st);
     let nx = X.name + 8;
-    if (risk) { circle(nx + 5, cy - 3.2, 5, COL.neg); text(nx + 5, cy - 0.2, '!', { size: 7.5, bold: true, color: '#FFFFFF', align: 'center' }); nx += 14; }
-    text(nx, cy, fit(r.s.name + (r.s.from ? ` (${r.s.from})` : ''), X.tot - 50 - nx, 9.5), { size: 9.5 });
-    const gc = g => g == null ? COL.ink3 : g < 2.5 ? COL.pos : g < 4.5 ? '#9A6B12' : COL.neg;
-    text(X.tot, cy, r.st.total == null ? '–' : fmtNum(r.st.total), { size: 10, bold: true, color: gc(r.st.total), align: 'right' });
-    text(X.then, cy, r.then == null ? '–' : fmtNum(r.then), { size: 9.5, color: COL.ink2, align: 'right' });
+    if (isRisk(r.st)) { k.warn(nx, cy); nx += 14; }
+    k.text(nx, cy, k.fit(r.s.name + (r.s.from ? ` (${r.s.from})` : ''), X.tot - 50 - nx, 9.5), { size: 9.5 });
+    k.text(X.tot, cy, r.st.total == null ? '–' : fmtNum(r.st.total), { size: 10, bold: true, color: k.gc(r.st.total), align: 'right' });
+    k.text(X.then, cy, r.then == null ? '–' : fmtNum(r.then), { size: 9.5, color: COL.ink2, align: 'right' });
     if (r.tr.dir) {
       const d = -r.tr.delta;
-      text(X.chg, cy, (d > 0.04 ? '+' : d < -0.04 ? '–' : '±') + fmtNum(Math.abs(d)), { size: 9.5, color: r.tr.dir === 'up' ? COL.pos : r.tr.dir === 'down' ? COL.neg : COL.ink2, align: 'right' });
-      arrow(X.trend, cy - 3.2, r.tr.dir);
-      text(X.trend + 16, cy, r.word, { size: 8.5, color: COL.ink2 });
-    } else { text(X.chg, cy, '–', { color: COL.ink3, align: 'right' }); text(X.trend, cy, 'zu wenige Einträge', { size: 8, color: COL.ink3 }); }
-    // Verlaufskurve
-    const sy = y + 5, sh = RH - 10;
-    rect(X.spark, sy, SPW, sh, '#FBFAF8');
-    const yv = v => sy + (Math.min(5, Math.max(1, v)) - 1) / 4 * sh;
-    rect(X.spark, yv(4), SPW, sy + sh - yv(4), COL.negS);
-    const ser = r.tr.ser;
-    if (ser.length >= 2) {
-      const t0 = dt(ser[0].d).getTime(), span = Math.max(1, dt(ser[ser.length - 1].d).getTime() - t0);
-      const pts = ser.map(p => [X.spark + (dt(p.d).getTime() - t0) / span * SPW, yv(p.v)]);
-      line(pts, r.tr.dir === 'up' ? COL.pos : r.tr.dir === 'down' ? COL.neg : COL.acc, 1.4);
-      circle(pts[pts.length - 1][0], pts[pts.length - 1][1], 1.8, r.tr.dir === 'up' ? COL.pos : r.tr.dir === 'down' ? COL.neg : COL.acc);
-    } else text(X.spark + SPW / 2, cy, 'noch kein Verlauf', { size: 7.5, color: COL.ink3, align: 'center' });
-    const ab = r.st.abs;
-    text(X.abs - 8, cy, `${ab.A} / ${ab.AE}`, { size: 9.5, color: ab.A ? COL.neg : COL.ink2, align: 'right' });
-    line([[M, y + RH], [W - M, y + RH]], COL.line, .5);
+      k.text(X.chg, cy, (d > 0.04 ? '+' : d < -0.04 ? '–' : '±') + fmtNum(Math.abs(d)), { size: 9.5, color: r.tr.dir === 'up' ? COL.pos : r.tr.dir === 'down' ? COL.neg : COL.ink2, align: 'right' });
+      k.arrow(X.trend, cy - 3.2, r.tr.dir);
+      k.text(X.trend + 16, cy, r.word, { size: 8.5, color: COL.ink2 });
+    } else { k.text(X.chg, cy, '–', { color: COL.ink3, align: 'right' }); k.text(X.trend, cy, 'zu wenige Einträge', { size: 8, color: COL.ink3 }); }
+    if (!k.spark(X.spark, y + 5, SPW, RH - 10, r.tr.ser, r.tr.dir)) k.text(X.spark + SPW / 2, cy, 'noch kein Verlauf', { size: 7.5, color: COL.ink3, align: 'center' });
+    k.text(X.abs - 8, cy, `${r.st.abs.A} / ${r.st.abs.AN}`, { size: 9.5, color: r.st.abs.A ? COL.neg : COL.ink2, align: 'right' });
+    k.line([[M, y + RH], [W - M, y + RH]], COL.line, .5);
     y += RH;
   }
-  flush();
-  // Zusammenfassung unter der Tabelle (letzte Seite)
-  const n = rows.length, risk = rows.filter(r => isRisk(r.st)).length, up = rows.filter(r => r.tr.dir === 'up').length, down = rows.filter(r => r.tr.dir === 'down').length;
-  ops = [];
-  const sumY = Math.min(y + 24, H - M - 30);
-  text(M, sumY, `${n} Schüler:innen · ${up} verbessern sich · ${down} verschlechtern sich · ${risk} mit Gesamtnote über 4`, { size: 9, color: COL.ink2 });
-  pages[pages.length - 1] += '\n' + ops.join('\n');
-  // Fußzeile mit Seitenzahlen
-  pages.forEach((pg, i) => { ops = []; text(M, H - 22, `Klassenbuch · ${c.name}`, { size: 7.5, color: COL.ink3 }); text(W - M, H - 22, `Seite ${i + 1} von ${pages.length}`, { size: 7.5, color: COL.ink3, align: 'right' }); pages[i] = pg + '\n' + ops.join('\n'); });
-  // PDF zusammensetzen
-  const objs = [];
-  const add = s2 => { objs.push(s2); return objs.length; };
-  const catalog = add(''), pagesId = add('');
-  const f1 = add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');
-  const f2 = add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
-  const kids = pages.map(content => {
-    const cs = add(`<< /Length ${content.length} >>\nstream\n${content}\nendstream`);
-    return add(`<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${W} ${H}] /Resources << /Font << /F1 ${f1} 0 R /F2 ${f2} 0 R >> >> /Contents ${cs} 0 R >>`);
+  const n = rows.length, up = rows.filter(r => r.tr.dir === 'up').length, down = rows.filter(r => r.tr.dir === 'down').length, risk = rows.filter(r => isRisk(r.st)).length;
+  k.text(M, Math.min(y + 24, H - M - 30), `${n} Schüler:innen · ${up} verbessern sich · ${down} verschlechtern sich · ${risk} mit Gesamtnote über 4`, { size: 9, color: COL.ink2 });
+  return k.build('Trends ' + c.name, `Klassenbuch · ${c.name}`);
+}
+
+function studentTrendPDF(c, s) {
+  const k = pdfKit(), { W, H, M, COL } = k, r = trendRow(c, s), st = r.st;
+  let y = pdfHead(k, 'TREND', s.name, [`${c.name}${s.from ? ` · aus ${s.from}` : ''} · Stand ${fmtDayLong(today())}`, `Gesamtnote gewichtet: ${weightSummary(c)}`]);
+  // Kennzahlen
+  const cards = [
+    ['GESAMTNOTE', st.total == null ? '–' : fmtNum(st.total), k.gc(st.total)],
+    ['VOR 4 WOCHEN', r.then == null ? '–' : fmtNum(r.then), COL.ink],
+    ['TREND', r.tr.dir ? (-r.tr.delta > 0.04 ? '+' : -r.tr.delta < -0.04 ? '–' : '±') + fmtNum(Math.abs(r.tr.delta)) : '–', r.tr.dir === 'up' ? COL.pos : r.tr.dir === 'down' ? COL.neg : COL.ink],
+    ['ABWESEND', String(st.abs.A), st.abs.A ? COL.neg : COL.ink]
+  ];
+  const cw = (W - 2 * M - 3 * 10) / 4;
+  cards.forEach(([l, v, col], i) => {
+    const x = M + i * (cw + 10);
+    k.rect(x, y, cw, 58, COL.card);
+    k.text(x + 12, y + 17, l, { size: 7.5, bold: true, color: COL.ink3 });
+    k.text(x + 12, y + 44, v, { size: 22, bold: true, color: col });
   });
-  objs[catalog - 1] = `<< /Type /Catalog /Pages ${pagesId} 0 R >>`;
-  objs[pagesId - 1] = `<< /Type /Pages /Kids [${kids.map(k => k + ' 0 R').join(' ')}] /Count ${kids.length} >>`;
-  const info = add(`<< /Title ${pdfStr('Trends ' + c.name)} /Producer (Klassenbuch) >>`);
-  let out = '%PDF-1.4\n%\xE2\xE3\xCF\xD3\n';
-  const offs = [];
-  objs.forEach((o, i) => { offs.push(out.length); out += `${i + 1} 0 obj\n${o}\nendobj\n`; });
-  const xref = out.length;
-  out += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n` + offs.map(o => String(o).padStart(10, '0') + ' 00000 n \n').join('');
-  out += `trailer\n<< /Size ${objs.length + 1} /Root ${catalog} 0 R /Info ${info} 0 R >>\nstartxref\n${xref}\n%%EOF`;
-  const bytes = new Uint8Array(out.length);
-  for (let i = 0; i < out.length; i++) bytes[i] = out.charCodeAt(i) & 255;
-  return bytes;
+  if (r.tr.dir) k.arrow(M + 2 * (cw + 10) + cw - 26, y + 37, r.tr.dir, 1.3);
+  y += 58 + 12;
+  const note = [r.tr.dir ? `${r.word[0].toUpperCase() + r.word.slice(1)} gegenüber vor 4 Wochen.` : 'Noch zu wenige Einträge für einen Trend.',
+    isRisk(st) ? 'Achtung: Gesamtnote über 4.' : '', st.abs.AN ? `${st.abs.AN}× anwesend ohne Note.` : ''].filter(Boolean).join(' ');
+  if (isRisk(st)) k.warn(M, y + 6);
+  k.text(M + (isRisk(st) ? 15 : 0), y + 9, note, { size: 9.5, color: isRisk(st) ? COL.neg : COL.ink2 });
+  y += 30;
+  // Diagramm
+  k.text(M, y, 'VERLAUF DER GESAMTNOTE', { size: 8, bold: true, color: COL.acc }); y += 12;
+  const cx = M + 22, cwid = W - 2 * M - 52, ch = 170, cy0 = y + 6;
+  const yv = v => cy0 + (Math.min(5, Math.max(1, v)) - 1) / 4 * ch;
+  k.rect(cx, yv(4), cwid, yv(5) - yv(4), COL.negS);
+  [1, 2, 3, 4, 5].forEach(g => { k.line([[cx, yv(g)], [cx + cwid, yv(g)]], COL.line, .6); k.text(cx - 8, yv(g) + 3, String(g), { size: 8, color: COL.ink3, align: 'right' }); });
+  k.line([[cx, yv(4)], [cx + cwid, yv(4)]], COL.neg, .7, '3 3');
+  const ser = r.tr.ser;
+  if (ser.length >= 2) {
+    const t0 = dt(ser[0].d).getTime(), span = Math.max(1, dt(ser[ser.length - 1].d).getTime() - t0);
+    const pts = ser.map(p => [cx + (dt(p.d).getTime() - t0) / span * cwid, yv(p.v)]);
+    k.line(pts, k.tc(r.tr.dir), 2);
+    pts.forEach((p, i) => k.circle(p[0], p[1], i === pts.length - 1 ? 3.6 : 2, k.tc(r.tr.dir)));
+    const last = pts[pts.length - 1];
+    k.text(last[0] + 7, last[1] + 3.5, fmtNum(ser[ser.length - 1].v), { size: 9, bold: true });
+    const sh = d => dt(d).toLocaleDateString('de-AT', { day: 'numeric', month: 'numeric' });
+    k.text(cx, cy0 + ch + 14, sh(ser[0].d), { size: 8, color: COL.ink3 });
+    if (ser.length > 2) k.text(cx + cwid / 2, cy0 + ch + 14, sh(ser[Math.floor(ser.length / 2)].d), { size: 8, color: COL.ink3, align: 'center' });
+    k.text(cx + cwid, cy0 + ch + 14, sh(ser[ser.length - 1].d), { size: 8, color: COL.ink3, align: 'right' });
+  } else k.text(cx + cwid / 2, cy0 + ch / 2, 'Noch kein Verlauf vorhanden', { size: 9, color: COL.ink3, align: 'center' });
+  y = cy0 + ch + 34;
+  // Kategorien
+  const rowsK = visKeys(c).map(key => [typeOf(c, key).label, (() => {
+    const kind = kindOf(c, key);
+    if (key === 'hu') { const T = st.hu.y + st.hu.n; return T ? `${st.hu.y} von ${T} gebracht` : '–'; }
+    if (key === 'vh') return st.vh.pp + st.vh.p + st.vh.n + st.vh.nn ? `sehr gut ${st.vh.pp} · gut ${st.vh.p} · weniger gut ${st.vh.n} · schlecht ${st.vh.nn}` : '–';
+    if (kind === 'num') { const x = st.nums[key]; return x.best == null ? '–' : `Bestwert ${withUnit(x.best, typeOf(c, key).unit)} · ${plural(x.n, 'Messung', 'Messungen')}`; }
+    if (kind === 'text') return st.texts[key].n ? plural(st.texts[key].n, 'Notiz', 'Notizen') : '–';
+    return st.avg[key] == null ? '–' : `Ø ${fmtNum(st.avg[key])}  (${st.list[key].join(', ')})`;
+  })()]);
+  k.text(M, y, 'KATEGORIEN', { size: 8, bold: true, color: COL.acc }); y += 8;
+  rowsK.forEach(([l, v], i) => {
+    if (i % 2) k.rect(M, y, W - 2 * M, 20, COL.zebra);
+    k.text(M + 8, y + 13.5, l, { size: 9.5, bold: true });
+    k.text(M + 150, y + 13.5, k.fit(v, W - 2 * M - 160, 9.5), { size: 9.5, color: COL.ink2 });
+    y += 20;
+  });
+  y += 20;
+  // Einträge
+  const es = entriesOf(c.id, s.id).filter(e => typeOf(c, e.t)).sort((a, b) => b.d.localeCompare(a.d));
+  const eHead = () => {
+    k.text(M, y, 'EINTRÄGE', { size: 8, bold: true, color: COL.acc }); y += 8;
+    k.rect(M, y, W - 2 * M, 18, COL.accS);
+    const o = { size: 7.5, bold: true, color: COL.acc };
+    k.text(M + 8, y + 12, 'DATUM', o); k.text(M + 80, y + 12, 'KATEGORIE', o); k.text(M + 210, y + 12, 'WERT', o); k.text(M + 300, y + 12, 'ANMERKUNG', o);
+    y += 18;
+  };
+  if (es.length) {
+    if (y + 60 > H - M - 20) { k.page(); y = M; }
+    eHead();
+    es.forEach((e, i) => {
+      if (y + 18 > H - M - 20) { k.page(); y = M; eHead(); }
+      if (i % 2) k.rect(M, y, W - 2 * M, 18, COL.zebra);
+      const t = typeOf(c, e.t), kind = kindOf(c, e.t);
+      const noteTxt = kind === 'text' ? '' : e.n || '';
+      k.text(M + 8, y + 12.5, fmtDay(e.d), { size: 8.5, color: COL.ink2 });
+      k.text(M + 80, y + 12.5, k.fit(t.label, 125, 8.5), { size: 8.5 });
+      k.text(M + 210, y + 12.5, k.fit(entryValue(c, e) + (e.w && e.w !== 1 ? ` (×${fmtW(e.w)})` : ''), 85, 8.5, true), { size: 8.5, bold: true, color: isAbs(e.v) ? COL.ink3 : COL.ink });
+      k.text(M + 300, y + 12.5, k.fit(kind === 'text' ? e.v : noteTxt, W - 2 * M - 308, 8.5), { size: 8.5, color: COL.ink2 });
+      y += 18;
+    });
+  }
+  return k.build(`Trend ${s.name}`, `Klassenbuch · ${c.name} · ${s.name}`);
 }
 
 function parseCSV(text) {
@@ -1329,7 +1434,6 @@ const actions = {
 
   goCompose() { location.hash = '#/neu'; },
   goManage() { location.hash = '#/verwalten'; },
-  toggleHidden() { ui.showHidden = !ui.showHidden; render(); },
   async unhide(d) { const c = getClass(d.c); if (!c) return; delete c.hidden; await save(); render(); toast(`„${c.name}“ wieder eingeblendet`); },
   async toggleClassHidden(d) {
     const c = getClass(d.c); if (!c) return;
@@ -1345,9 +1449,11 @@ const actions = {
     await save(); render(); toast('Klasse gelöscht');
   },
   async addClass() {
-    if (data.classes.length > 1) {
-      const k = await modal({ title: 'Neue Klasse', options: [['empty', 'Leere Klasse anlegen'], ['mix', 'Gruppe aus mehreren Klassen zusammenstellen']] });
+    if (data.classes.length) {
+      const opts = [['imp', 'Schülerliste importieren (WebUntis, Excel, CSV)'], ...(data.classes.length > 1 ? [['mix', 'Gruppe aus mehreren Klassen']] : []), ['empty', 'Leere Klasse anlegen']];
+      const k = await modal({ title: 'Neue Klasse', options: opts });
       if (!k) return;
+      if (k === 'imp') return actions.importAny();
       if (k === 'mix') { location.hash = '#/neu'; return; }
     }
     const name = (await modal({ title: 'Neue Klasse', input: true, placeholder: 'z. B. 3B', ok: 'Anlegen' }) || '').trim();
@@ -1359,20 +1465,20 @@ const actions = {
     const c = currentClass(); if (!c) return;
     const k = await modal({
       title: c.name, options: [
-        ['cfg', 'Bewertung & Gewichtung'], ['cat', 'Kategorien bearbeiten'], ['mix', 'Schüler:innen aus anderen Klassen'], ['add', 'Schüler:innen eintippen'], ['imp', 'Liste importieren (WebUntis, Excel, CSV)'],
-        ['tr', 'Trends exportieren (PDF / Excel)'], ['ov', 'Übersicht exportieren (CSV)'], ['all', 'Alle Einträge exportieren (CSV)'],
-        ['ren', 'Klasse umbenennen'], ['hide', c.hidden ? 'Klasse wieder einblenden' : 'Klasse ausblenden'], ['del', 'Klasse löschen', true]
+        ['cfg', 'Bewertung & Gewichtung'], ['cat', 'Kategorien'], ['stud', 'Schüler:innen hinzufügen'], ['exp', 'Exportieren'],
+        ['ren', 'Umbenennen'], ['hide', c.hidden ? 'Wieder einblenden' : 'Ausblenden'], ['del', 'Klasse löschen', true]
       ], cancel: 'Schließen'
     });
     if (k === 'cfg') location.hash = '#/b/' + c.id;
     if (k === 'cat') location.hash = '#/kat/' + c.id;
-    if (k === 'mix') location.hash = '#/neu/' + c.id;
+    if (k === 'stud') {
+      const o = await modal({ title: 'Schüler:innen hinzufügen', text: c.name, options: [['imp', 'Liste importieren (WebUntis, Excel, CSV)'], ['add', 'Namen eintippen'], ...(data.classes.length > 1 ? [['mix', 'Aus anderen Klassen übernehmen']] : [])] });
+      if (o === 'imp') actions.importStudents();
+      if (o === 'add') actions.addStudents();
+      if (o === 'mix') location.hash = '#/neu/' + c.id;
+    }
+    if (k === 'exp') actions.exportMenu();
     if (k === 'hide') { c.hidden = !c.hidden; if (!c.hidden) delete c.hidden; await save(); if (c.hidden) { location.hash = '#/'; toast(`„${c.name}“ ausgeblendet`); } else { render(); toast(`„${c.name}“ wieder eingeblendet`); } }
-    if (k === 'add') actions.addStudents();
-    if (k === 'imp') actions.importStudents();
-    if (k === 'tr') actions.exportTrends();
-    if (k === 'ov') actions.exportOverview();
-    if (k === 'all') actions.exportEntries();
     if (k === 'ren') {
       const n = (await modal({ title: 'Klasse umbenennen', input: true, value: c.name, ok: 'Speichern' }) || '').trim();
       if (n) { c.name = n; await save(); render(); }
@@ -1503,9 +1609,9 @@ const actions = {
     const type = curType(c), t = typeOf(c, type);
     const i = data.entries.findIndex(e => e.c === c.id && e.s === s.id && e.d === ui.date && e.t === type);
     const cur = i >= 0 ? data.entries[i] : null;
-    const opts = [['A', `${cur && cur.v === 'A' ? '✓  ' : ''}A – abwesend`], ['AE', `${cur && cur.v === 'AE' ? '✓  ' : ''}AE – abwesend, entschuldigt`]];
+    const opts = [['A', `${cur && cur.v === 'A' ? '✓  ' : ''}A – abwesend`], ['AN', `${cur && cur.v === 'AN' ? '✓  ' : ''}AN – anwesend (ohne Note)`]];
     if (cur) opts.push(['note', 'Anmerkung'], ['rm', 'Eintrag entfernen', true]);
-    const k = await modal({ title: 'Abwesenheit', text: `${s.name} · ${t.label} · ${fmtDay(ui.date)}\nZählt nicht zur Note, wird aber als Abwesenheit gezählt.`, options: opts, cancel: 'Abbrechen' });
+    const k = await modal({ title: 'Anwesenheit', text: `${s.name} · ${t.label} · ${fmtDay(ui.date)}\nZählt nicht zur Note, wird aber mitgezählt.`, options: opts, cancel: 'Abbrechen' });
     if (!k) return;
     if (k === 'note') return actions.entryNote({ v: cur.id });
     if (k === 'rm') data.entries.splice(i, 1);
@@ -1657,7 +1763,8 @@ const actions = {
 
   async studentMenu() {
     const c = currentClass(); const s = c && c.students.find(x => x.id === currentStudentId()); if (!s) return;
-    const k = await modal({ title: s.name, options: [['ren', 'Umbenennen'], ['del', 'Aus der Klasse entfernen', true]], cancel: 'Schließen' });
+    const k = await modal({ title: s.name, options: [['exp', 'Trend exportieren (PDF / Excel)'], ['ren', 'Umbenennen'], ['del', 'Aus der Klasse entfernen', true]], cancel: 'Schließen' });
+    if (k === 'exp') return actions.studentExport();
     if (k === 'ren') {
       const n = (await modal({ title: 'Umbenennen', input: true, value: s.name, ok: 'Speichern' }) || '').trim();
       if (n) { s.name = n; await save(); render(); }
@@ -1678,14 +1785,32 @@ const actions = {
     data.entries = data.entries.filter(x => x !== e); await save(); render();
   },
 
+  async exportMenu() {
+    const c = currentClass(); if (!c) return;
+    const k = await modal({ title: 'Exportieren', text: c.name, options: [['pdf', 'Trends als PDF'], ['xlsx', 'Trends als Excel (.xlsx)'], ['ov', 'Übersicht als CSV'], ['all', 'Alle Einträge als CSV']] });
+    if (!k) return;
+    const base = `Trends_${safeName(c.name)}_${today()}`;
+    if (k === 'pdf') saveFile(base + '.pdf', 'application/pdf', classTrendsPDF(c, trendRows(c)));
+    if (k === 'xlsx') saveFile(base + '.xlsx', XLSX_MIME, classTrendsXLSX(c, trendRows(c)));
+    if (k === 'ov') actions.exportOverview();
+    if (k === 'all') actions.exportEntries();
+  },
+  async studentExport() {
+    const c = currentClass(); const s = c && c.students.find(x => x.id === currentStudentId()); if (!s) return;
+    const k = await modal({ title: 'Trend exportieren', text: s.name, options: [['pdf', 'Als PDF'], ['xlsx', 'Als Excel (.xlsx)']] });
+    if (!k) return;
+    const base = `Trend_${safeName(s.name)}_${today()}`;
+    if (k === 'pdf') saveFile(base + '.pdf', 'application/pdf', studentTrendPDF(c, s));
+    else saveFile(base + '.xlsx', XLSX_MIME, studentTrendXLSX(c, s));
+  },
   async exportTrends() {
     const c = currentClass(); if (!c) return;
     const k = await modal({ title: 'Trends exportieren', text: c.name, options: [['pdf', 'Als PDF'], ['xlsx', 'Als Excel-Datei (.xlsx)']] });
     if (!k) return;
     const rows = trendRows(c);
     const base = `Trends_${safeName(c.name)}_${today()}`;
-    if (k === 'pdf') saveFile(base + '.pdf', 'application/pdf', trendsPDF(c, rows));
-    else saveFile(base + '.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', trendsXLSX(c, rows));
+    if (k === 'pdf') saveFile(base + '.pdf', 'application/pdf', classTrendsPDF(c, rows));
+    else saveFile(base + '.xlsx', XLSX_MIME, classTrendsXLSX(c, rows));
   },
   exportOverview() {
     const c = currentClass(); if (!c) return;
