@@ -557,3 +557,28 @@ a.btn { text-decoration: none; }
 .hero .sub svg { vertical-align: -2px; }
 .pill-row.tight { margin-top: 10px; }
 .pill-row .span2 { grid-column: 1 / -1; }
+
+/* ---------- Eigene Kategorien ---------- */
+.cat.edit { background: none; box-shadow: none; border: 1.5px dashed var(--line-2); color: var(--ink-3); }
+.valbox {
+  display: flex; align-items: center; gap: 6px; height: 42px; padding: 0 12px; border-radius: 12px;
+  border: 1px solid var(--line); background: var(--surface-2); transition: border-color .15s, background .15s;
+}
+.valbox:focus-within { border-color: var(--accent); background: var(--surface); box-shadow: 0 0 0 3px var(--accent-soft); }
+.valbox.filled, .valbox:has(input:not(:placeholder-shown)) { background: var(--accent-soft); border-color: transparent; }
+.valbox input {
+  border: 0; background: none; outline: none; font-size: 16px; font-weight: 650; padding: 0; min-width: 0;
+  font-variant-numeric: tabular-nums; color: var(--ink);
+}
+.valbox.num { width: 118px; }
+.valbox.num input { width: 100%; text-align: right; }
+.valbox .unit { color: var(--ink-3); font-size: 14px; font-weight: 600; flex: none; }
+.srow.textrow .vals { flex: 1 1 100%; margin-left: 0; }
+.valbox.text { width: 100%; }
+.valbox.text input { width: 100%; font-weight: 500; }
+.badge.n { background: var(--accent-soft); color: var(--accent); white-space: nowrap; }
+.eicon.n { background: var(--accent-soft); color: var(--accent); }
+.mbtn.ghost { background: none; pointer-events: none; }
+.kindbox { display: grid; gap: 12px; }
+.kindseg { margin: 0; }
+.kindseg button { font-size: 14px; }

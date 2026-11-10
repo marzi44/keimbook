@@ -8,7 +8,7 @@ const PUBLIC_KEY = {
   x: 'kHkzCWyGjuxGxGf_3AMH2F_MKEWEjH1hfCnBf7K1Imo',
   y: 'Fv556fMFzralLJTUqYxNxI68b9Fd4ctkLzgn07BzKj0'
 };
-const APP_VERSION = '2.8';
+const APP_VERSION = '2.9';
 
 const TYPES = {
   ma: { label: 'Mitarbeit', long: 'Mitarbeit', icon: 'spark', vals: [['+', '+', 'g'], ['~', '~', 'm'], ['-', '−', 'b']] },
@@ -50,29 +50,56 @@ const SYM = {
 const glyph = (l, size = 17) => SYM[l]
   ? `<svg class="sym" viewBox="0 0 24 24" width="${size}" height="${size}" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">${SYM[l]}</svg>`
   : `<span class="digit">${l}</span>`;
-const valInfo = (t, v) => (SCALABLE.includes(t) ? [...SCALES.grade, ...SCALES.pm] : TYPES[t] ? TYPES[t].vals : []).find(x => x[0] === v) || [v, v, 'm'];
+const valInfo = (t, v) => ((SCALABLE.includes(t) || !TYPES[t]) ? [...SCALES.grade, ...SCALES.pm] : TYPES[t].vals).find(x => x[0] === v) || [v, v, 'm'];
 
 /* ---------- Bewertung: Notenskala & Gewichtung (je Klasse) ---------- */
 const SCALES = { grade: grades(), pm: [['+', '+', 'g'], ['~', '~', 'm'], ['-', '−', 'b']] };
 const SCALABLE = ['ma', 'mu', 'sw'];
-const DEFAULT_CFG = { scale: { ma: 'pm', mu: 'grade', sw: 'grade' }, weight: { ma: 30, mu: 30, sw: 40, hu: 0, vh: 0 } };
+const BUILTIN = ['ma', 'mu', 'sw', 'hu', 'vh'];
+const DEFAULT_CFG = { scale: { ma: 'pm', mu: 'grade', sw: 'grade' }, weight: { ma: 30, mu: 30, sw: 40, hu: 0, vh: 0 }, cats: { hidden: [], custom: [] } };
 const NUM = { '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '+': 1, '~': 3, '-': 5, y: 1, p: 1, n: 5 };
 const SHORT = { ma: 'Mitarbeit', mu: 'Mündl.', sw: 'Schriftl.', hu: 'HÜ', vh: 'Verhalten' };
+// Eigene Kategorien: Note (1–5 bzw. + ~ −), Messwert (Zahl mit Einheit) oder Notiz (freier Text)
+const KINDS = {
+  note: { icon: 'star', label: 'Note', desc: 'Note 1–5 oder + ~ −' },
+  num: { icon: 'ruler', label: 'Messwert', desc: 'Zahl mit Einheit, z. B. Weite oder Zeit' },
+  text: { icon: 'doc', label: 'Notiz', desc: 'Freier Text je Schüler:in' }
+};
 function cfg(c) {
   if (!c.cfg) c.cfg = JSON.parse(JSON.stringify(DEFAULT_CFG));
   c.cfg.scale = Object.assign({}, DEFAULT_CFG.scale, c.cfg.scale);
   c.cfg.weight = Object.assign({}, DEFAULT_CFG.weight, c.cfg.weight);
+  c.cfg.cats = Object.assign({ hidden: [], custom: [] }, c.cfg.cats);
   return c.cfg;
 }
-const scaleOf = (c, t) => SCALABLE.includes(t) ? cfg(c).scale[t] : null;
-const valsFor = (c, t) => SCALABLE.includes(t) ? SCALES[cfg(c).scale[t]] : TYPES[t].vals;
+const customOf = (c, k) => cfg(c).cats.custom.find(x => x.id === k);
+function typeOf(c, k) {
+  if (TYPES[k]) return TYPES[k];
+  const x = c && customOf(c, k);
+  return x ? { label: x.label, long: x.label, icon: KINDS[x.kind].icon, custom: true, kind: x.kind, unit: x.unit || '', high: x.high !== false } : null;
+}
+function kindOf(c, k) {
+  if (SCALABLE.includes(k)) return 'note';
+  if (k === 'hu' || k === 'vh') return k;
+  const x = c && customOf(c, k); return x ? x.kind : null;
+}
+const catKeys = c => [...BUILTIN, ...cfg(c).cats.custom.map(x => x.id)];
+const visKeys = c => catKeys(c).filter(k => !cfg(c).cats.hidden.includes(k));
+const weighable = (c, k) => ['note', 'hu', 'vh'].includes(kindOf(c, k));
+const shortOf = (c, k) => SHORT[k] || (typeOf(c, k) || { label: k }).label;
+const scaleOf = (c, t) => kindOf(c, t) === 'note' ? (cfg(c).scale[t] || 'grade') : null;
+const valsFor = (c, t) => kindOf(c, t) === 'note' ? SCALES[scaleOf(c, t)] : TYPES[t].vals;
 const toPm = v => ({ '1': '+', '2': '+', '3': '~', '4': '-', '5': '-' }[v] || v);
 const fmtW = w => w === 0.5 ? '½' : String(w).replace('.', ',');
+const fmtVal = v => String(v).replace('.', ',');
+const withUnit = (v, u) => fmtVal(v) + (u ? ' ' + u : '');
 function weightSummary(c) {
-  const w = cfg(c).weight, sum = Object.values(w).reduce((a, b) => a + b, 0);
+  const w = cfg(c).weight, keys = visKeys(c).filter(k => weighable(c, k) && (w[k] || 0) > 0);
+  const sum = keys.reduce((a, k) => a + w[k], 0);
   if (!sum) return 'Keine Gewichtung festgelegt';
-  return Object.keys(TYPES).filter(k => w[k] > 0).map(k => `${TYPES[k].label} ${Math.round(w[k] / sum * 100)} %`).join(' · ');
+  return keys.map(k => `${typeOf(c, k).label} ${Math.round(w[k] / sum * 100)} %`).join(' · ');
 }
+const curType = c => { const v = visKeys(c); return v.includes(ui.type) ? ui.type : v[0]; };
 
 /* ---------- Hilfsfunktionen ---------- */
 const $ = (s, el = document) => el.querySelector(s);
@@ -113,6 +140,9 @@ const ICON = {
   eye: svg('<path d="M2.5 12s3.5-6.5 9.5-6.5 9.5 6.5 9.5 6.5-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/>', 19, 1.9),
   eyeOff: svg('<path d="M4 4l16 16"/><path d="M9.9 5.8A9.6 9.6 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a16 16 0 0 1-3 3.7M6.4 7.4A16 16 0 0 0 2.5 12s3.5 6.5 9.5 6.5a9 9 0 0 0 4.3-1.1"/><path d="M10 10a2.8 2.8 0 0 0 4 4"/>', 19, 1.9),
   list: svg('<path d="M9 6.5h11M9 12h11M9 17.5h11"/><path d="M4.5 6.5h.01M4.5 12h.01M4.5 17.5h.01" stroke-width="2.8"/>', 19, 1.9),
+  star: svg('<path d="M12 3.8l2.5 5.2 5.7.7-4.2 3.9 1.1 5.6L12 16.4l-5.1 2.8 1.1-5.6-4.2-3.9 5.7-.7z"/>', 18, 1.8),
+  ruler: svg('<path d="M3.5 15.5l12-12 5 5-12 12z"/><path d="M7.5 11.5l2 2M10.5 8.5l2 2M13.5 5.5l2 2"/>', 18, 1.8),
+  doc: svg('<path d="M6.5 3.5h7l4 4v13h-11z"/><path d="M13.5 3.5v4h4M9 12h6M9 15.5h6"/>', 18, 1.8),
   check: svg('<path d="M6 12.5l4 4 8-8.5"/>', 15, 2.8),
   down: svg('<path d="M6.5 9.5L12 15l5.5-5.5"/>', 18, 2.2),
   left: svg('<path d="M14.5 5.5L8 12l6.5 6.5"/>', 22, 2.2),
@@ -168,8 +198,8 @@ let license = null;
 let lockMsg = '';
 const ui = Object.assign({ tab: 'e', type: 'ma', filter: 'all' }, lsGet('kb.ui', {}));
 ui.date = today(); // beim Start immer heute
-if (!TYPES[ui.type]) ui.type = 'ma';
-if (ui.filter !== 'all' && !TYPES[ui.filter]) ui.filter = 'all';
+if (!ui.type) ui.type = 'ma';
+if (!ui.filter) ui.filter = 'all';
 
 async function save() {
   try { await DB.set('data', data); }
@@ -236,6 +266,7 @@ function render() {
   else if (view === 'k' && getClass(a)) { key = 'k' + a; html = viewClass(getClass(a)); }
   else if (view === 's' && getClass(a) && getClass(a).students.find(s => s.id === b)) { key = 's' + b; html = viewStudent(getClass(a), b); }
   else if (view === 'b' && getClass(a)) { key = 'b' + a; html = viewRating(getClass(a)); }
+  else if (view === 'kat' && getClass(a)) { key = 'kat' + a; html = viewCats(getClass(a)); }
   else if (view === 'neu' && data.classes.length) { key = 'neu' + (a || ''); html = viewCompose(a ? getClass(a) : null); }
   else if (view === 'verwalten') { key = 'man'; html = viewManage(); }
   else if (view === 'einstellungen') { key = 'set'; html = viewSettings(); }
@@ -245,6 +276,11 @@ function render() {
   }
   v.innerHTML = html;
   if (key !== lastKey) { v.classList.remove('enter'); void v.offsetWidth; v.classList.add('enter'); lastKey = key; }
+  // Aktive Kategorie in der Leiste sichtbar halten
+  v.querySelectorAll('.cats').forEach(bar => {
+    const on = bar.querySelector('.cat.on'); if (!on) return;
+    if (on.offsetLeft + on.offsetWidth > bar.scrollLeft + bar.clientWidth || on.offsetLeft < bar.scrollLeft) bar.scrollLeft = on.offsetLeft - 16;
+  });
   onScroll();
 }
 window.addEventListener('hashchange', () => { main.scrollTop = 0; render(); });
@@ -337,12 +373,12 @@ function viewClass(c) {
 }
 
 function viewEntry(c) {
-  const cats = Object.entries(TYPES).map(([k, t]) =>
-    `<button class="cat ${ui.type === k ? 'on' : ''}" data-a="type" data-v="${k}">${ICON[t.icon]}${t.label}</button>`).join('');
-  const rows = [...c.students].sort(byName).map(s => rowHTML(c, s)).join('');
-  const bulk = ui.type === 'hu' ? `<div class="bulk"><button class="link" data-a="bulkHu">Alle übrigen ✓</button></div>` : '';
+  const type = curType(c);
+  const cats = visKeys(c).map(k => { const t = typeOf(c, k);
+    return `<button class="cat ${type === k ? 'on' : ''}" data-a="type" data-v="${k}">${ICON[t.icon]}${esc(t.label)}</button>`; }).join('')
+    + `<button class="cat edit" data-a="goCats" aria-label="Kategorien bearbeiten">${ICON.pen}Bearbeiten</button>`;
   const back = ui.date !== today() ? `<div class="today-link"><button class="link" data-a="toToday">Zurück zu heute</button></div>` : '';
-  return `
+  const datebar = `
     <div class="datebar">
       <button class="dbtn" data-a="day" data-v="-1" aria-label="Vorheriger Tag">${ICON.left}</button>
       <div class="datepill">
@@ -351,38 +387,61 @@ function viewEntry(c) {
         <input type="date" id="date" value="${ui.date}" aria-label="Datum wählen">
       </div>
       <button class="dbtn" data-a="day" data-v="1" aria-label="Nächster Tag">${ICON.right}</button>
-    </div>${back}
-    <div class="cats">${cats}</div>${bulk}
-    <div class="card">${rows}</div>`;
+    </div>${back}`;
+  if (!type) return datebar + `<div class="cats">${cats}</div><div class="card empty"><h2>Keine Kategorie sichtbar</h2><p>Blende über „Bearbeiten“ eine Kategorie ein oder lege eine eigene an.</p></div>`;
+  const kind = kindOf(c, type), t = typeOf(c, type);
+  const bulk = type === 'hu' ? `<div class="bulk"><button class="link" data-a="bulkHu">Alle übrigen ✓</button></div>`
+    : kind === 'num' ? `<p class="fine">${esc(t.label)}${t.unit ? ' in ' + esc(t.unit) : ''} · Wert eintippen, mit „Weiter“ zur nächsten Person. Leeres Feld löscht den Eintrag.</p>`
+      : kind === 'text' ? `<p class="fine">Notiz eintippen, mit „Weiter“ zur nächsten Person.</p>` : '';
+  const rows = [...c.students].sort(byName).map(s => rowHTML(c, s)).join('');
+  return datebar + `<div class="cats">${cats}</div>${bulk}<div class="card">${rows}</div>`;
 }
 
 function rowHTML(c, s) {
-  const t = TYPES[ui.type];
-  const todays = data.entries.filter(e => e.c === c.id && e.s === s.id && e.d === ui.date && e.t === ui.type);
-  let meta = '', btns;
-  if (t.multi) {
+  const type = curType(c), t = typeOf(c, type), kind = kindOf(c, type);
+  const todays = data.entries.filter(e => e.c === c.id && e.s === s.id && e.d === ui.date && e.t === type);
+  let meta = '', btns, cls = '';
+  if (kind === 'vh') {
     const cnt = {}; todays.forEach(e => { cnt[e.v] = (cnt[e.v] || 0) + 1; });
     meta = vhCounts(cnt);
-    btns = t.vals.map(([v, label, cls]) =>
-      `<button class="v add face ${cls}" data-a="mark" data-s="${s.id}" data-v="${v}" aria-label="${esc('Verhalten ' + label)}">${face(v, 25)}</button>`).join('');
+    btns = t.vals.map(([v, label, vc]) =>
+      `<button class="v add face ${vc}" data-a="mark" data-s="${s.id}" data-v="${v}" aria-label="${esc('Verhalten ' + label)}">${face(v, 25)}</button>`).join('');
+    cls = ' five';
+  } else if (kind === 'num' || kind === 'text') {
+    const cur = todays[0];
+    btns = `<label class="valbox ${kind}"><input class="valin" data-s="${s.id}" ${kind === 'num' ? 'inputmode="decimal"' : 'autocapitalize="sentences"'} enterkeyhint="next" autocomplete="off"
+      value="${cur ? esc(kind === 'num' ? fmtVal(cur.v) : cur.v) : ''}" placeholder="${kind === 'num' ? '–' : 'Notiz …'}" aria-label="${esc(t.label + ' ' + s.name)}">${kind === 'num' && t.unit ? `<span class="unit">${esc(t.unit)}</span>` : ''}</label>`;
+    cls = kind === 'text' ? ' textrow' : '';
   } else {
     const cur = todays[0];
-    const curV = cur ? (scaleOf(c, ui.type) === 'pm' ? toPm(cur.v) : ({ '+': '1', '~': '3', '-': '5' }[cur.v] || cur.v)) : null;
-    btns = valsFor(c, ui.type).map(([v, label, cls]) =>
-      `<button class="v ${cls} ${curV === v ? 'on' : ''}" data-a="mark" data-s="${s.id}" data-v="${v}" aria-label="${esc(t.label + ' ' + label)}">${glyph(label)}</button>`).join('');
+    const curV = cur ? (scaleOf(c, type) === 'pm' ? toPm(cur.v) : ({ '+': '1', '~': '3', '-': '5' }[cur.v] || cur.v)) : null;
+    const vals = valsFor(c, type);
+    btns = vals.map(([v, label, vc]) =>
+      `<button class="v ${vc} ${curV === v ? 'on' : ''}" data-a="mark" data-s="${s.id}" data-v="${v}" aria-label="${esc(t.label + ' ' + label)}">${glyph(label)}</button>`).join('');
+    cls = vals.length > 3 ? ' five' : '';
   }
-  return `<div class="srow${t.multi || valsFor(c, ui.type).length > 3 ? ' five' : ''}" data-row="${s.id}">
+  return `<div class="srow${cls}" data-row="${s.id}">
     <a class="sname-wrap" href="#/s/${c.id}/${s.id}"><span class="sname">${isRisk(stats(c, s.id)) ? WARN : ''}${esc(s.name)}${fromTag(s)}</span>${meta ? `<span class="smeta">${meta}</span>` : ''}</a>
     <div class="vals">${btns}</div></div>`;
 }
 
 function stats(c, sid) {
-  const st = { n: 0, avg: {}, cnt: {}, list: {}, hu: { y: 0, n: 0 }, vh: { pp: 0, p: 0, n: 0, nn: 0 }, total: null };
-  const acc = {};
-  for (const k of Object.keys(TYPES)) { acc[k] = { s: 0, w: 0 }; st.cnt[k] = { '+': 0, '~': 0, '-': 0 }; st.list[k] = []; }
-  for (const e of entriesOf(c.id, sid)) {
+  const st = { n: 0, avg: {}, cnt: {}, list: {}, nums: {}, texts: {}, hu: { y: 0, n: 0 }, vh: { pp: 0, p: 0, n: 0, nn: 0 }, total: null };
+  const acc = {}, vis = visKeys(c);
+  for (const k of catKeys(c)) { acc[k] = { s: 0, w: 0 }; st.cnt[k] = { '+': 0, '~': 0, '-': 0 }; st.list[k] = []; st.nums[k] = { n: 0, best: null, last: null, lastD: '' }; st.texts[k] = { n: 0, last: '', lastD: '' }; }
+  const es = entriesOf(c.id, sid).sort((a, b) => a.d.localeCompare(b.d));
+  for (const e of es) {
     if (!acc[e.t]) continue;
     st.n++;
+    const kind = kindOf(c, e.t);
+    if (kind === 'num') {
+      const x = st.nums[e.t], v = parseFloat(e.v), hi = typeOf(c, e.t).high;
+      if (isNaN(v)) continue;
+      x.n++; x.last = v; x.lastD = e.d;
+      if (x.best == null || (hi ? v > x.best : v < x.best)) x.best = v;
+      continue;
+    }
+    if (kind === 'text') { const x = st.texts[e.t]; x.n++; x.last = e.v; x.lastD = e.d; continue; }
     const w = e.w || 1, num = e.t === 'vh' ? VH_NUM[e.v] : NUM[e.v];
     if (num != null) { acc[e.t].s += num * w; acc[e.t].w += w; }
     if (e.t === 'hu' || e.t === 'vh') st[e.t][e.v] = (st[e.t][e.v] || 0) + 1;
@@ -394,9 +453,9 @@ function stats(c, sid) {
   }
   const wt = cfg(c).weight;
   let S = 0, W = 0;
-  for (const k of Object.keys(TYPES)) {
+  for (const k of catKeys(c)) {
     st.avg[k] = acc[k].w ? acc[k].s / acc[k].w : null;
-    if ((wt[k] || 0) > 0 && st.avg[k] != null) { S += wt[k] * st.avg[k]; W += wt[k]; }
+    if (vis.includes(k) && weighable(c, k) && (wt[k] || 0) > 0 && st.avg[k] != null) { S += wt[k] * st.avg[k]; W += wt[k]; }
   }
   st.total = W ? S / W : null;
   return st;
@@ -410,16 +469,16 @@ const WARN = '<span class="warn" title="Gesamtnote über 4" aria-label="Achtung:
 
 // Gesamtnote zu jedem Datum (mit allen Einträgen bis dahin), gleiche Gewichtung wie oben
 function seriesOf(c, sid) {
-  const wt = cfg(c).weight;
-  const es = entriesOf(c.id, sid).filter(e => TYPES[e.t]).sort((a, b) => a.d.localeCompare(b.d));
-  const acc = {}; Object.keys(TYPES).forEach(k => { acc[k] = { s: 0, w: 0 }; });
+  const wt = cfg(c).weight, keys = visKeys(c).filter(k => weighable(c, k) && (wt[k] || 0) > 0);
+  const es = entriesOf(c.id, sid).filter(e => keys.includes(e.t)).sort((a, b) => a.d.localeCompare(b.d));
+  const acc = {}; keys.forEach(k => { acc[k] = { s: 0, w: 0 }; });
   const out = [];
   es.forEach((e, i) => {
     const num = e.t === 'vh' ? VH_NUM[e.v] : NUM[e.v], w = e.w || 1;
     if (num != null) { acc[e.t].s += num * w; acc[e.t].w += w; }
     if (i === es.length - 1 || es[i + 1].d !== e.d) {
       let S = 0, W = 0;
-      for (const k in acc) if ((wt[k] || 0) > 0 && acc[k].w) { S += wt[k] * acc[k].s / acc[k].w; W += wt[k]; }
+      for (const k in acc) if (acc[k].w) { S += wt[k] * acc[k].s / acc[k].w; W += wt[k]; }
       if (W) out.push({ d: e.d, v: S / W });
     }
   });
@@ -507,6 +566,9 @@ const dash = '<span class="chev">–</span>';
 function metricHTML(c, st, k) {
   if (k === 'hu') { const T = st.hu.y + st.hu.n; return T ? `${st.hu.y}/${T}` : dash; }
   if (k === 'vh') return vhCounts(st.vh) || dash;
+  const kind = kindOf(c, k);
+  if (kind === 'num') { const x = st.nums[k]; return x.best == null ? dash : esc(withUnit(x.best, typeOf(c, k).unit)); }
+  if (kind === 'text') { const x = st.texts[k]; return x.n ? x.n + '×' : dash; }
   if (scaleOf(c, k) === 'pm') { const x = st.cnt[k]; return `<span class="g-t">+${x['+']}</span><span class="m-t">~${x['~']}</span><span class="b-t">−${x['-']}</span>`; }
   return st.avg[k] == null ? dash : `<span class="${gradeCls(st.avg[k])}">${fmtNum(st.avg[k])}</span>`;
 }
@@ -519,10 +581,10 @@ function viewOverview(c) {
       ${(() => { const tr = trendOf(c, s.id); return `<div class="otrend">
         ${st.total == null ? '<span class="tot">Ø –</span>' : `<span class="tot ${gradeCls(st.total)}">Ø ${fmtNum(st.total)}${trendIcon(tr)}</span>`}
         ${sparkHTML(tr)}</div>`; })()}
-      <div class="metrics">${Object.keys(TYPES).map(k => `<span class="met"><span class="ml">${SHORT[k]}</span><span class="mv">${metricHTML(c, st, k)}</span></span>`).join('')}</div></a>`;
+      <div class="metrics">${visKeys(c).map(k => `<span class="met"><span class="ml">${esc(shortOf(c, k))}</span><span class="mv">${metricHTML(c, st, k)}</span></span>`).join('')}</div></a>`;
   }).join('');
   return `<div class="card">${rows}</div>
-    <p class="legend">Ø = gewichtete Gesamtnote (${esc(weightSummary(c))}). HÜ zeigt „gebracht / gesamt“.</p>
+    <p class="legend">Ø = gewichtete Gesamtnote (${esc(weightSummary(c))}).${visKeys(c).includes('hu') ? ' HÜ zeigt „gebracht / gesamt“.' : ''}${visKeys(c).some(k => kindOf(c, k) === 'num') ? ' Messwerte zeigen den Bestwert.' : ''}</p>
     <div class="stack">
       <a class="btn secondary block" href="#/b/${c.id}">${ICON.sliders} Bewertung & Gewichtung</a>
       <button class="btn secondary block" data-a="exportOverview">${ICON.download} Übersicht exportieren</button>
@@ -581,26 +643,96 @@ function viewCompose(target) {
 function viewRating(c) {
   setHeader({ title: 'Bewertung', back: '#/k/' + c.id, backLabel: c.name });
   const cf = cfg(c);
-  const sum = Object.values(cf.weight).reduce((a, b) => a + b, 0);
-  const scaleRows = SCALABLE.map(k => `<div class="lrow static"><span class="licon">${ICON[TYPES[k].icon]}</span><span class="grow">${TYPES[k].label}</span>
-      <div class="mini-seg"><button class="${cf.scale[k] === 'grade' ? 'on' : ''}" data-a="setScale" data-t="${k}" data-v="grade">1 – 5</button><button class="${cf.scale[k] === 'pm' ? 'on' : ''}" data-a="setScale" data-t="${k}" data-v="pm" aria-label="Plus, Welle, Minus"><span class="symrow">${glyph('+', 14)}${glyph('~', 14)}${glyph('−', 14)}</span></button></div></div>`).join('');
-  const wRows = Object.keys(TYPES).map(k => {
-    const w = cf.weight[k];
-    return `<div class="lrow static"><span class="licon">${ICON[TYPES[k].icon]}</span><span class="grow">${TYPES[k].label}</span>
-      <div class="stepper"><button data-a="wStep" data-t="${k}" data-v="-5" aria-label="${TYPES[k].label} weniger">−</button><span class="num">${w} %</span><button data-a="wStep" data-t="${k}" data-v="5" aria-label="${TYPES[k].label} mehr">+</button></div></div>`;
+  const noteKeys = visKeys(c).filter(k => kindOf(c, k) === 'note');
+  const wKeys = visKeys(c).filter(k => weighable(c, k));
+  const sum = wKeys.reduce((a, k) => a + (cf.weight[k] || 0), 0);
+  const scaleRows = noteKeys.map(k => { const t = typeOf(c, k), sc = scaleOf(c, k);
+    return `<div class="lrow static"><span class="licon">${ICON[t.icon]}</span><span class="grow">${esc(t.label)}</span>
+      <div class="mini-seg"><button class="${sc === 'grade' ? 'on' : ''}" data-a="setScale" data-t="${k}" data-v="grade">1 – 5</button><button class="${sc === 'pm' ? 'on' : ''}" data-a="setScale" data-t="${k}" data-v="pm" aria-label="Plus, Welle, Minus"><span class="symrow">${glyph('+', 14)}${glyph('~', 14)}${glyph('−', 14)}</span></button></div></div>`; }).join('');
+  const wRows = wKeys.map(k => {
+    const t = typeOf(c, k), w = cf.weight[k] || 0;
+    return `<div class="lrow static"><span class="licon">${ICON[t.icon]}</span><span class="grow">${esc(t.label)}</span>
+      <div class="stepper"><button data-a="wStep" data-t="${k}" data-v="-5" aria-label="${esc(t.label)} weniger">−</button><span class="num">${w} %</span><button data-a="wStep" data-t="${k}" data-v="5" aria-label="${esc(t.label)} mehr">+</button></div></div>`;
   }).join('');
   const sumLine = sum === 100 ? '<span class="g-t">Summe: 100 %</span>'
     : sum === 0 ? 'Alle Anteile stehen auf 0 % – es wird keine Gesamtnote berechnet.'
       : `Summe: ${sum} % – die Anteile werden automatisch auf 100 % umgerechnet (${esc(weightSummary(c))}).`;
   return `<div class="hero"><div class="eyebrow">${esc(c.name)}</div><h1>Bewertung</h1></div>
-    <div class="section">Notenskala</div>
+    ${noteKeys.length ? `<div class="section">Notenskala</div>
     <div class="card">${scaleRows}</div>
-    <p class="fine">Bewerte mit Noten von 1 bis 5 oder mit + ~ −. Bereits eingetragene Werte bleiben erhalten.</p>
+    <p class="fine">Bewerte mit Noten von 1 bis 5 oder mit + ~ −. Bereits eingetragene Werte bleiben erhalten.</p>` : ''}
     <div class="section">Anteil an der Gesamtnote</div>
-    <div class="card">${wRows}</div>
+    <div class="card">${wRows || '<div class="nothing">Keine benotbare Kategorie sichtbar</div>'}</div>
     <p class="fine">${sumLine}</p>
-    <p class="fine">Umrechnung: + = 1, ~ = 3, − = 5 · Hausübung gebracht = 1, nicht gebracht = 5 · Verhalten: sehr gut = 1, gut = 2, weniger gut = 4, schlecht = 5.<br>Einzelne Noten kannst du bei der jeweiligen Schülerin oder dem jeweiligen Schüler stärker oder schwächer zählen lassen: einfach auf die Note tippen.</p>
-    ${data.classes.length > 1 ? `<button class="btn secondary block" data-a="cfgAll">Für alle Klassen übernehmen</button>` : ''}`;
+    <p class="fine">Umrechnung: + = 1, ~ = 3, − = 5 · Hausübung gebracht = 1, nicht gebracht = 5 · Verhalten: sehr gut = 1, gut = 2, weniger gut = 4, schlecht = 5. Messwerte und Notizen zählen nicht zur Gesamtnote.<br>Einzelne Noten kannst du bei der jeweiligen Schülerin oder dem jeweiligen Schüler stärker oder schwächer zählen lassen: einfach auf die Note tippen.</p>
+    <div class="stack">
+      <a class="btn secondary block" href="#/kat/${c.id}">${ICON.pen} Kategorien bearbeiten</a>
+      ${data.classes.length > 1 ? `<button class="btn secondary block" data-a="cfgAll">Für alle Klassen übernehmen</button>` : ''}
+    </div>`;
+}
+
+/* ---------- Kategorien je Klasse ---------- */
+function viewCats(c) {
+  setHeader({ title: 'Kategorien', back: '#/k/' + c.id, backLabel: c.name });
+  const hidden = cfg(c).cats.hidden;
+  const desc = k => {
+    const kind = kindOf(c, k), t = typeOf(c, k);
+    if (k === 'hu') return 'gebracht / nicht gebracht';
+    if (k === 'vh') return '4 Smileys mit Notiz';
+    if (kind === 'note') return scaleOf(c, k) === 'pm' ? '+ ~ −' : 'Note 1–5';
+    if (kind === 'num') return 'Messwert' + (t.unit ? ' in ' + t.unit : '') + (t.high ? ' · höher ist besser' : ' · niedriger ist besser');
+    return 'Notiz';
+  };
+  const row = k => {
+    const t = typeOf(c, k), off = hidden.includes(k), n = t.custom ? data.entries.filter(e => e.c === c.id && e.t === k).length : 0;
+    return `<div class="mrow${off ? ' off' : ''}">
+      <span class="licon">${ICON[t.icon]}</span>
+      <span class="grow"><span class="ctitle">${esc(t.label)}</span><span class="csub">${esc(desc(k))}${t.custom && n ? ` · ${plural(n, 'Eintrag', 'Einträge')}` : ''}</span></span>
+      <button class="mbtn${off ? '' : ' on'}" data-a="catToggle" data-t="${k}" aria-label="${off ? 'Einblenden' : 'Ausblenden'}">${off ? ICON.eyeOff : ICON.eye}</button>
+      ${t.custom ? `<button class="mbtn del" data-a="catDelete" data-t="${k}" aria-label="Löschen">${ICON.trash}</button>` : '<span class="mbtn ghost"></span>'}
+    </div>`;
+  };
+  const custom = cfg(c).cats.custom.map(x => x.id);
+  return `<div class="hero"><div class="eyebrow">${esc(c.name)}</div><h1>Kategorien</h1>
+      <div class="sub">Lege fest, was du in dieser Klasse einträgst.</div></div>
+    <div class="section">Standard</div>
+    <div class="card">${BUILTIN.map(row).join('')}</div>
+    <div class="section">Eigene Kategorien</div>
+    ${custom.length ? `<div class="card">${custom.map(row).join('')}</div>` : ''}
+    <button class="btn primary block${custom.length ? ' mt' : ''}" data-a="catAdd">${ICON.plus} Eigene Kategorie</button>
+    <p class="fine">Mit dem Auge blendest du eine Kategorie aus. Ihre Einträge bleiben erhalten. Eigene Kategorien kannst du auch löschen, dann werden ihre Einträge mit entfernt.</p>
+    <p class="fine">Beispiele: „Weitsprung“ als Messwert in m, „60-m-Lauf“ in s (niedriger ist besser), „Referat“ als Note, „Beobachtung“ als Notiz.</p>`;
+}
+
+function catSheet() {
+  let kind = 'num', scale = 'grade', high = true;
+  const segs = () => `
+    <div class="seg kindseg">${Object.entries(KINDS).map(([k, x]) => `<button type="button" data-kind="${k}" class="${kind === k ? 'on' : ''}">${x.label}</button>`).join('')}</div>
+    <p class="stext">${KINDS[kind].desc}</p>
+    ${kind === 'num' ? `<input name="unit" placeholder="Einheit, z. B. m, s, cm, Punkte" autocomplete="off">
+      <div class="seg kindseg"><button type="button" data-high="1" class="${high ? 'on' : ''}">Höher ist besser</button><button type="button" data-high="0" class="${high ? '' : 'on'}">Niedriger ist besser</button></div>` : ''}
+    ${kind === 'note' ? `<div class="seg kindseg"><button type="button" data-scale="grade" class="${scale === 'grade' ? 'on' : ''}">Note 1 – 5</button><button type="button" data-scale="pm" class="${scale === 'pm' ? 'on' : ''}">+ ~ −</button></div>` : ''}`;
+  return modal({
+    title: 'Eigene Kategorie', ok: 'Anlegen',
+    body: `<input name="label" placeholder="Name, z. B. Weitsprung" autocomplete="off" autocapitalize="sentences"><div class="kindbox"></div>`,
+    mount(d) {
+      const box = d.querySelector('.kindbox');
+      const paint = () => { const u = box.querySelector('[name=unit]'); const uv = u ? u.value : ''; box.innerHTML = segs(); const nu = box.querySelector('[name=unit]'); if (nu) nu.value = uv; };
+      box.addEventListener('click', e => {
+        const b = e.target.closest('button'); if (!b) return;
+        if (b.dataset.kind) kind = b.dataset.kind;
+        if (b.dataset.high) high = b.dataset.high === '1';
+        if (b.dataset.scale) scale = b.dataset.scale;
+        paint();
+      });
+      paint();
+      setTimeout(() => d.querySelector('[name=label]').focus(), 80);
+    },
+    collect(d) {
+      const u = d.querySelector('[name=unit]');
+      return { label: d.querySelector('[name=label]').value.trim(), kind, scale, high, unit: u ? u.value.trim() : '' };
+    }
+  });
 }
 
 /* ---------- Schüler:in ---------- */
@@ -610,9 +742,17 @@ function viewStudent(c, sid) {
   const st = stats(c, sid);
   const lastVh = entriesOf(c.id, sid).filter(e => e.t === 'vh').sort((a, b) => b.d.localeCompare(a.d))[0];
   const tile = k => {
-    const sc = scaleOf(c, k), a = st.avg[k];
+    const sc = scaleOf(c, k), a = st.avg[k], t = typeOf(c, k), kind = kindOf(c, k);
     let val, sub;
-    if (k === 'hu') {
+    if (kind === 'num') {
+      const x = st.nums[k];
+      val = x.best == null ? '–' : esc(withUnit(x.best, t.unit));
+      sub = x.n ? `${t.high ? 'Bestwert' : 'Bestzeit'} · zuletzt ${withUnit(x.last, t.unit)} · ${plural(x.n, 'Messung', 'Messungen')}` : 'noch keine';
+    } else if (kind === 'text') {
+      const x = st.texts[k];
+      val = x.n ? x.n + '×' : '–';
+      sub = x.n ? `zuletzt: ${x.last}` : 'noch keine';
+    } else if (k === 'hu') {
       const T = st.hu.y + st.hu.n;
       val = T ? `${st.hu.y}/${T}` : '–';
       sub = st.hu.n ? `${st.hu.n}× nicht gebracht` : T ? 'immer gebracht' : 'noch keine';
@@ -627,16 +767,17 @@ function viewStudent(c, sid) {
       val = a == null ? '–' : `<span class="${gradeCls(a)}">${fmtNum(a)}</span>`;
       sub = st.list[k].length ? 'Noten: ' + st.list[k].join(', ') : 'noch keine';
     }
-    return `<div class="tile"><div class="k">${TYPES[k].label}${sc === 'grade' ? ' Ø' : ''}</div><div class="val">${val}</div><div class="sub">${esc(sub)}</div></div>`;
+    return `<div class="tile"><div class="k">${esc(t.label)}${sc === 'grade' ? ' Ø' : ''}</div><div class="val">${val}</div><div class="sub">${esc(sub)}</div></div>`;
   };
   const tiles = `<div class="tiles">
     <a class="tile total" href="#/b/${c.id}"><div class="k">Gesamtnote</div><div class="val">${st.total == null ? '–' : fmtNum(st.total)}</div><div class="sub">${esc(weightSummary(c))}</div></a>
-    ${Object.keys(TYPES).map(tile).join('')}
+    ${visKeys(c).map(tile).join('')}
     <div class="tile"><div class="k">Einträge</div><div class="val">${st.n}</div><div class="sub">insgesamt</div></div>
   </div>`;
-  const chips = [['all', 'Alle', null], ...Object.entries(TYPES).map(([k, t]) => [k, t.label, t.icon])].map(([k, l, ic]) =>
-    `<button class="cat ${ui.filter === k ? 'on' : ''}" data-a="filter" data-v="${k}">${ic ? ICON[ic] : ''}${l}</button>`).join('');
-  const es = entriesOf(c.id, sid).filter(e => ui.filter === 'all' || e.t === ui.filter)
+  const filt = ui.filter === 'all' || visKeys(c).includes(ui.filter) ? ui.filter : 'all';
+  const chips = [['all', 'Alle', null], ...visKeys(c).map(k => [k, typeOf(c, k).label, typeOf(c, k).icon])].map(([k, l, ic]) =>
+    `<button class="cat ${filt === k ? 'on' : ''}" data-a="filter" data-v="${k}">${ic ? ICON[ic] : ''}${esc(l)}</button>`).join('');
+  const es = entriesOf(c.id, sid).filter(e => typeOf(c, e.t) && (filt === 'all' || e.t === filt))
     .sort((a, b) => b.d.localeCompare(a.d) || a.t.localeCompare(b.t));
   let list = '';
   if (!es.length) list = `<div class="nothing">Keine Einträge</div>`;
@@ -645,12 +786,17 @@ function viewStudent(c, sid) {
     es.forEach(e => { if (!byDay.has(e.d)) byDay.set(e.d, []); byDay.get(e.d).push(e); });
     for (const [d, items] of byDay) {
       list += `<div class="dayh">${esc(dayWord(d) === 'Heute' ? 'Heute' : fmtDayHead(d))}</div><div class="card">${items.map(e => {
-        const [, label, cls] = valInfo(e.t, e.v);
-        const t = TYPES[e.t] || { long: e.t, icon: 'info' };
+        const [, label, cls0] = valInfo(e.t, e.v);
+        const t = typeOf(c, e.t), kind = kindOf(c, e.t);
+        const cls = kind === 'num' || kind === 'text' ? 'n' : cls0;
         const title = e.t === 'vh' ? 'Verhalten: ' + vhLabel(e.v) : t.long;
+        const note = kind === 'text' ? e.v : e.n;
+        const badge = e.t === 'vh' || kind === 'text' ? ''
+          : kind === 'num' ? `<span class="badge n">${esc(withUnit(e.v, t.unit))}</span>`
+            : `<button class="badge ${cls}" data-a="entryWeight" data-v="${e.id}" aria-label="Gewichtung ändern">${glyph(label)}${e.w && e.w !== 1 ? `<small>×${fmtW(e.w)}</small>` : ''}</button>`;
         return `<div class="erow"><span class="eicon ${e.t === 'vh' ? vhCls(e.v) : cls}">${e.t === 'vh' ? face(e.v, 22) : ICON[t.icon]}</span>
-          <div class="etext"><div class="etitle">${esc(title)}</div>${e.n ? `<div class="enote">${esc(e.n)}</div>` : ''}</div>
-          ${e.t === 'vh' ? '' : `<button class="badge ${cls}" data-a="entryWeight" data-v="${e.id}" aria-label="Gewichtung ändern">${glyph(label)}${e.w && e.w !== 1 ? `<small>×${fmtW(e.w)}</small>` : ''}</button>`}
+          <div class="etext"><div class="etitle">${esc(title)}</div>${note ? `<div class="enote">${esc(note)}</div>` : ''}</div>
+          ${badge}
           <button class="del" data-a="delEntry" data-v="${e.id}" aria-label="Eintrag löschen">${ICON.close}</button></div>`;
       }).join('')}</div>`;
     }
@@ -662,7 +808,7 @@ function viewStudent(c, sid) {
     ${tiles}
     ${trendCard(c, sid)}
     <div class="cats filters">${chips}</div>
-    ${es.some(e => e.t !== 'vh') ? '<p class="fine">Tipp: Tippe auf eine Note, um sie halb, doppelt oder dreifach zählen zu lassen.</p>' : ''}
+    ${es.some(e => weighable(c, e.t) && e.t !== 'vh') ? '<p class="fine">Tipp: Tippe auf eine Note, um sie halb, doppelt oder dreifach zählen zu lassen.</p>' : ''}
     ${list}`;
 }
 
@@ -939,7 +1085,7 @@ function addNames(c, names) {
 }
 
 /* ---------- Aktionen ---------- */
-const currentClass = () => { const [v, a] = location.hash.replace(/^#\/?/, '').split('/'); return (v === 'k' || v === 's' || v === 'b') ? getClass(a) : null; };
+const currentClass = () => { const [v, a] = location.hash.replace(/^#\/?/, '').split('/'); return (v === 'k' || v === 's' || v === 'b' || v === 'kat') ? getClass(a) : null; };
 const currentStudentId = () => location.hash.replace(/^#\/?/, '').split('/')[2];
 const errMsg = e => e && e.message ? e.message : 'Datei konnte nicht gelesen werden';
 
@@ -984,12 +1130,13 @@ const actions = {
     const c = currentClass(); if (!c) return;
     const k = await modal({
       title: c.name, options: [
-        ['cfg', 'Bewertung & Gewichtung'], ['mix', 'Schüler:innen aus anderen Klassen'], ['add', 'Schüler:innen eintippen'], ['imp', 'Liste importieren (WebUntis, Excel, CSV)'],
+        ['cfg', 'Bewertung & Gewichtung'], ['cat', 'Kategorien bearbeiten'], ['mix', 'Schüler:innen aus anderen Klassen'], ['add', 'Schüler:innen eintippen'], ['imp', 'Liste importieren (WebUntis, Excel, CSV)'],
         ['ov', 'Übersicht exportieren'], ['all', 'Alle Einträge exportieren'],
         ['ren', 'Klasse umbenennen'], ['hide', c.hidden ? 'Klasse wieder einblenden' : 'Klasse ausblenden'], ['del', 'Klasse löschen', true]
       ], cancel: 'Schließen'
     });
     if (k === 'cfg') location.hash = '#/b/' + c.id;
+    if (k === 'cat') location.hash = '#/kat/' + c.id;
     if (k === 'mix') location.hash = '#/neu/' + c.id;
     if (k === 'hide') { c.hidden = !c.hidden; if (!c.hidden) delete c.hidden; await save(); if (c.hidden) { location.hash = '#/'; toast(`„${c.name}“ ausgeblendet`); } else { render(); toast(`„${c.name}“ wieder eingeblendet`); } }
     if (k === 'add') actions.addStudents();
@@ -1078,20 +1225,66 @@ const actions = {
   async mark(d) {
     const c = currentClass(); if (!c) return;
     const s = c.students.find(x => x.id === d.s); if (!s) return;
-    if (TYPES[ui.type].multi) {
+    const type = curType(c);
+    if (type === 'vh') {
       const r = await behaviorSheet(s.name, d.v); if (!r) return;
-      data.entries.push({ id: uid(), c: c.id, s: s.id, d: ui.date, t: ui.type, v: r.v, n: r.n });
+      data.entries.push({ id: uid(), c: c.id, s: s.id, d: ui.date, t: type, v: r.v, n: r.n });
       toast('Verhalten notiert: ' + vhLabel(r.v));
     } else {
-      const i = data.entries.findIndex(e => e.c === c.id && e.s === d.s && e.d === ui.date && e.t === ui.type);
+      const i = data.entries.findIndex(e => e.c === c.id && e.s === d.s && e.d === ui.date && e.t === type);
       if (i >= 0 && data.entries[i].v === d.v) data.entries.splice(i, 1);
       else if (i >= 0) data.entries[i].v = d.v;
-      else data.entries.push({ id: uid(), c: c.id, s: d.s, d: ui.date, t: ui.type, v: d.v });
+      else data.entries.push({ id: uid(), c: c.id, s: d.s, d: ui.date, t: type, v: d.v });
     }
     const row = document.querySelector(`[data-row="${d.s}"]`);
     if (row) row.outerHTML = rowHTML(c, s);
     haptic();
     await save();
+  },
+  async setVal(inp) {
+    const c = currentClass(); if (!c) return;
+    const type = curType(c), kind = kindOf(c, type), sid = inp.dataset.s;
+    let v = inp.value.trim();
+    if (kind === 'num' && v) {
+      const n = parseFloat(v.replace(',', '.').replace(/[^\d.\-]/g, ''));
+      if (isNaN(n)) { toast('Bitte eine Zahl eingeben'); inp.value = ''; return; }
+      v = String(n); inp.value = fmtVal(v);
+    }
+    const i = data.entries.findIndex(e => e.c === c.id && e.s === sid && e.d === ui.date && e.t === type);
+    if (!v) { if (i >= 0) data.entries.splice(i, 1); }
+    else if (i >= 0) data.entries[i].v = v;
+    else data.entries.push({ id: uid(), c: c.id, s: sid, d: ui.date, t: type, v });
+    inp.closest('.valbox').classList.toggle('filled', !!v);
+    await save();
+  },
+  goCats() { const c = currentClass(); if (c) location.hash = '#/kat/' + c.id; },
+  async catToggle(d) {
+    const c = currentClass(); if (!c) return;
+    const h = cfg(c).cats.hidden, i = h.indexOf(d.t);
+    if (i >= 0) h.splice(i, 1); else h.push(d.t);
+    await save(); render();
+  },
+  async catAdd() {
+    const c = currentClass(); if (!c) return;
+    const r = await catSheet(); if (!r) return;
+    if (!r.label) return toast('Bitte einen Namen eingeben');
+    const id = 'x' + uid();
+    cfg(c).cats.custom.push({ id, label: r.label, kind: r.kind, ...(r.kind === 'num' ? { unit: r.unit, high: r.high } : {}) });
+    if (r.kind === 'note') { cfg(c).scale[id] = r.scale; cfg(c).weight[id] = 0; }
+    ui.type = id; saveUi();
+    await save(); render(); toast(`„${r.label}“ angelegt`);
+  },
+  async catDelete(d) {
+    const c = currentClass(); if (!c) return;
+    const x = customOf(c, d.t); if (!x) return;
+    const n = data.entries.filter(e => e.c === c.id && e.t === x.id).length;
+    if (!await modal({ title: 'Kategorie löschen?', text: `„${x.label}“${n ? ` und ${plural(n, 'Eintrag', 'Einträge')}` : ''} werden endgültig gelöscht.\nTipp: Mit dem Auge kannst du sie stattdessen nur ausblenden.`, ok: 'Löschen', danger: true })) return;
+    const cf = cfg(c);
+    cf.cats.custom = cf.cats.custom.filter(y => y !== x);
+    cf.cats.hidden = cf.cats.hidden.filter(k => k !== x.id);
+    delete cf.weight[x.id]; delete cf.scale[x.id];
+    data.entries = data.entries.filter(e => !(e.c === c.id && e.t === x.id));
+    await save(); render(); toast('Kategorie gelöscht');
   },
   cmpClass(d) {
     const c = getClass(d.c); if (!c) return;
@@ -1150,7 +1343,7 @@ const actions = {
     const cur = String(e.w || 1);
     const opts = [['0.5', 'Halb (×½)'], ['1', 'Normal (×1)'], ['2', 'Doppelt (×2)'], ['3', 'Dreifach (×3)']]
       .map(([v, l]) => [v, (v === cur ? '✓  ' : '') + l]);
-    const k = await modal({ title: 'Wie stark soll diese Note zählen?', text: `${TYPES[e.t].long} · ${fmtDayLong(e.d)} · ${valInfo(e.t, e.v)[1]}`, options: opts, cancel: 'Abbrechen' });
+    const k = await modal({ title: 'Wie stark soll diese Note zählen?', text: `${(typeOf(getClass(e.c), e.t) || { long: e.t }).long} · ${fmtDayLong(e.d)} · ${valInfo(e.t, e.v)[1]}`, options: opts, cancel: 'Abbrechen' });
     if (!k) return;
     if (k === '1') delete e.w; else e.w = +k;
     await save(); render(); toast(k === '1' ? 'Zählt normal' : `Zählt jetzt ×${fmtW(+k)}`);
@@ -1189,22 +1382,38 @@ const actions = {
   async delEntry(d) {
     const e = data.entries.find(x => x.id === d.v); if (!e) return;
     const what = e.t === 'vh' ? 'Verhalten: ' + vhLabel(e.v) + (e.n ? ' – ' + e.n : '')
-      : `${TYPES[e.t].long}: ${valInfo(e.t, e.v)[1]}`;
+      : (() => { const c = getClass(e.c), t = typeOf(c, e.t) || { long: e.t }, kind = kindOf(c, e.t);
+          return `${t.long}: ${kind === 'num' ? withUnit(e.v, t.unit) : kind === 'text' ? e.v : valInfo(e.t, e.v)[1]}`; })();
     if (!await modal({ title: 'Eintrag löschen?', text: `${fmtDayLong(e.d)}\n${what}`, ok: 'Löschen', danger: true })) return;
     data.entries = data.entries.filter(x => x !== e); await save(); render();
   },
 
   exportOverview() {
     const c = currentClass(); if (!c) return;
+    const keys = visKeys(c);
     const head = ['Name'];
-    for (const k of SCALABLE) head.push(`${TYPES[k].label} Ø`, `${TYPES[k].label} Einträge`);
-    head.push('HÜ gebracht', 'HÜ nicht gebracht', 'Verhalten sehr gut', 'Verhalten gut', 'Verhalten weniger gut', 'Verhalten schlecht', 'Gesamtnote');
+    for (const k of keys) {
+      const t = typeOf(c, k), kind = kindOf(c, k);
+      if (k === 'hu') head.push('HÜ gebracht', 'HÜ nicht gebracht');
+      else if (k === 'vh') head.push('Verhalten sehr gut', 'Verhalten gut', 'Verhalten weniger gut', 'Verhalten schlecht');
+      else if (kind === 'num') head.push(`${t.label} Bestwert${t.unit ? ' (' + t.unit + ')' : ''}`, `${t.label} zuletzt`, `${t.label} Messungen`);
+      else if (kind === 'text') head.push(`${t.label} Anzahl`, `${t.label} zuletzt`);
+      else head.push(`${t.label} Ø`, `${t.label} Einträge`);
+    }
+    head.push('Gesamtnote');
     const rows = [head];
     for (const s of [...c.students].sort(byName)) {
       const st = stats(c, s.id);
-      const r = [s.name];
-      for (const k of SCALABLE) r.push(st.avg[k] == null ? '' : fmtNum(st.avg[k]), st.list[k].join(' '));
-      r.push(st.hu.y, st.hu.n, st.vh.pp, st.vh.p, st.vh.n, st.vh.nn, st.total == null ? '' : fmtNum(st.total));
+      const r = [s.name + (s.from ? ` (${s.from})` : '')];
+      for (const k of keys) {
+        const kind = kindOf(c, k);
+        if (k === 'hu') r.push(st.hu.y, st.hu.n);
+        else if (k === 'vh') r.push(st.vh.pp, st.vh.p, st.vh.n, st.vh.nn);
+        else if (kind === 'num') { const x = st.nums[k]; r.push(x.best == null ? '' : fmtVal(x.best), x.last == null ? '' : fmtVal(x.last), x.n); }
+        else if (kind === 'text') { const x = st.texts[k]; r.push(x.n, x.last); }
+        else r.push(st.avg[k] == null ? '' : fmtNum(st.avg[k]), st.list[k].join(' '));
+      }
+      r.push(st.total == null ? '' : fmtNum(st.total));
       rows.push(r);
     }
     rows.push([], [`Gewichtung: ${weightSummary(c)}`]);
@@ -1215,8 +1424,9 @@ const actions = {
     const names = Object.fromEntries(c.students.map(s => [s.id, s.name]));
     const rows = [['Datum', 'Name', 'Kategorie', 'Wert', 'Gewicht', 'Notiz']];
     entriesOf(c.id).filter(e => names[e.s]).sort((a, b) => a.d.localeCompare(b.d) || names[a.s].localeCompare(names[b.s], 'de'))
-      .forEach(e => rows.push([e.d.split('-').reverse().join('.'), names[e.s], (TYPES[e.t] || { long: e.t }).long,
-        e.t === 'hu' ? (e.v === 'y' ? 'gebracht' : 'nicht gebracht') : e.t === 'vh' ? vhLabel(e.v) : valInfo(e.t, e.v)[1],
+      .forEach(e => rows.push([e.d.split('-').reverse().join('.'), names[e.s], (typeOf(c, e.t) || { long: e.t }).long,
+        e.t === 'hu' ? (e.v === 'y' ? 'gebracht' : 'nicht gebracht') : e.t === 'vh' ? vhLabel(e.v)
+          : kindOf(c, e.t) === 'num' ? withUnit(e.v, typeOf(c, e.t).unit) : kindOf(c, e.t) === 'text' ? e.v : valInfo(e.t, e.v)[1],
         e.w ? fmtW(e.w) : '1', e.n || '']));
     saveFile(`Einträge_${safeName(c.name)}_${today()}.csv`, 'text/csv', toCSV(rows));
   },
@@ -1274,6 +1484,13 @@ document.addEventListener('change', e => {
   if (e.target.id === 'date' && e.target.value) { ui.date = e.target.value; render(); }
 });
 document.addEventListener('input', e => { if (e.target.id === 'cmpName') cmp.name = e.target.value; });
+document.addEventListener('change', e => { if (e.target.classList && e.target.classList.contains('valin')) actions.setVal(e.target); });
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Enter' || !e.target.classList || !e.target.classList.contains('valin')) return;
+  e.preventDefault();
+  const all = [...document.querySelectorAll('.valin')], i = all.indexOf(e.target);
+  if (all[i + 1]) all[i + 1].focus(); else e.target.blur();
+});
 
 /* ---------- Start ---------- */
 async function loadData() {
