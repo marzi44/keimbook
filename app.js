@@ -8,13 +8,14 @@ const PUBLIC_KEY = {
   x: 'kHkzCWyGjuxGxGf_3AMH2F_MKEWEjH1hfCnBf7K1Imo',
   y: 'Fv556fMFzralLJTUqYxNxI68b9Fd4ctkLzgn07BzKj0'
 };
-const APP_VERSION = '3.3';
+const APP_VERSION = '3.5';
 
 const TYPES = {
   ma: { label: 'Mitarbeit', long: 'Mitarbeit', icon: 'spark', vals: [['+', '+', 'g'], ['~', '~', 'm'], ['-', '−', 'b']] },
   mu: { label: 'Mündlich', long: 'Mündliche Wiederholung', icon: 'speech', vals: grades() },
   sw: { label: 'Schriftlich', long: 'Schriftliche Wiederholung', icon: 'pen', vals: grades() },
   hu: { label: 'Hausübung', long: 'Hausübung', icon: 'book', vals: [['y', '✓', 'g'], ['n', '✗', 'b']] },
+  an: { label: 'Anwesenheit', long: 'Anwesenheit', icon: 'pres', vals: [['AN', '✓', 'g'], ['A', '✗', 'b']] },
   vh: { label: 'Verhalten', long: 'Verhalten', icon: 'smile', multi: true, vals: [['pp', 'sehr gut', 'g'], ['p', 'gut', 'g'], ['n', 'weniger gut', 'm'], ['nn', 'schlecht', 'b']] }
 };
 // Vier Smiley-Stufen für Verhalten
@@ -55,10 +56,10 @@ const valInfo = (t, v) => ((SCALABLE.includes(t) || !TYPES[t]) ? [...SCALES.grad
 /* ---------- Bewertung: Notenskala & Gewichtung (je Klasse) ---------- */
 const SCALES = { grade: grades(), pm: [['+', '+', 'g'], ['~', '~', 'm'], ['-', '−', 'b']] };
 const SCALABLE = ['ma', 'mu', 'sw'];
-const BUILTIN = ['ma', 'mu', 'sw', 'hu', 'vh'];
+const BUILTIN = ['an', 'ma', 'mu', 'sw', 'hu', 'vh'];
 const DEFAULT_CFG = { scale: { ma: 'pm', mu: 'grade', sw: 'grade' }, weight: { ma: 30, mu: 30, sw: 40, hu: 0, vh: 0 }, cats: { hidden: [], custom: [] } };
 const NUM = { '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '+': 1, '~': 3, '-': 5, y: 1, p: 1, n: 5 };
-const SHORT = { ma: 'Mitarbeit', mu: 'Mündl.', sw: 'Schriftl.', hu: 'HÜ', vh: 'Verhalten' };
+const SHORT = { an: 'Anwesenheit', ma: 'Mitarbeit', mu: 'Mündl.', sw: 'Schriftl.', hu: 'HÜ', vh: 'Verhalten' };
 // Eigene Kategorien: Note (1–5 bzw. + ~ −), Messwert (Zahl mit Einheit) oder Notiz (freier Text)
 const KINDS = {
   note: { icon: 'star', label: 'Note', desc: 'Note 1–5 oder + ~ −' },
@@ -83,7 +84,7 @@ function typeOf(c, k) {
 }
 function kindOf(c, k) {
   if (SCALABLE.includes(k)) return 'note';
-  if (k === 'hu' || k === 'vh') return k;
+  if (k === 'hu' || k === 'vh' || k === 'an') return k;
   const x = c && customOf(c, k); return x ? x.kind : null;
 }
 const catKeys = c => [...BUILTIN, ...cfg(c).cats.custom.map(x => x.id)];
@@ -149,6 +150,7 @@ const ICON = {
   star: svg('<path d="M12 3.8l2.5 5.2 5.7.7-4.2 3.9 1.1 5.6L12 16.4l-5.1 2.8 1.1-5.6-4.2-3.9 5.7-.7z"/>', 18, 1.8),
   ruler: svg('<path d="M3.5 15.5l12-12 5 5-12 12z"/><path d="M7.5 11.5l2 2M10.5 8.5l2 2M13.5 5.5l2 2"/>', 18, 1.8),
   doc: svg('<path d="M6.5 3.5h7l4 4v13h-11z"/><path d="M13.5 3.5v4h4M9 12h6M9 15.5h6"/>', 18, 1.8),
+  pres: svg('<circle cx="9.5" cy="7.5" r="3.5"/><path d="M3.5 20a6 6 0 0 1 12 0"/><path d="M15.5 12.5l2 2 4-4.5"/>', 18, 1.8),
   check: svg('<path d="M6 12.5l4 4 8-8.5"/>', 15, 2.8),
   down: svg('<path d="M6.5 9.5L12 15l5.5-5.5"/>', 18, 2.2),
   left: svg('<path d="M14.5 5.5L8 12l6.5 6.5"/>', 22, 2.2),
@@ -387,15 +389,24 @@ function viewEntry(c) {
     </div>${back}`;
   if (!type) return datebar + `<div class="cats">${cats}</div><div class="card empty"><h2>Keine Kategorie sichtbar</h2><p>Blende über „Bearbeiten“ eine Kategorie ein oder lege eine eigene an.</p></div>`;
   const kind = kindOf(c, type), t = typeOf(c, type);
-  const bulk = type === 'hu' ? `<div class="bulk"><button class="link" data-a="bulkHu">Alle übrigen ✓</button></div>`
+  const bulk = type === 'hu' ? `<div class="bulk"><button class="link" data-a="bulkFill" data-v="y">Alle übrigen ✓</button></div>`
+    : type === 'an' ? `<div class="bulk"><button class="link" data-a="bulkFill" data-v="AN">Alle übrigen anwesend</button></div>`
     : kind === 'num' ? `<p class="fine">${esc(t.label)}${t.unit ? ' in ' + esc(t.unit) : ''} · Wert eintippen, mit „Weiter“ zur nächsten Person. Leeres Feld löscht den Eintrag.</p>`
       : kind === 'text' ? `<p class="fine">Notiz eintippen, mit „Weiter“ zur nächsten Person.</p>` : '';
   const rows = [...c.students].sort(byName).map(s => rowHTML(c, s)).join('');
   return datebar + `<div class="cats">${cats}</div>${bulk}<div class="card">${rows}</div>`;
 }
 
+// Abwesend an diesem Tag? Dann gibt es dort nichts zu benoten.
+const isAbsentOn = (c, sid, d) => data.entries.some(e => e.c === c.id && e.s === sid && e.d === d && e.t === 'an' && e.v === 'A');
+
 function rowHTML(c, s) {
   const type = curType(c), t = typeOf(c, type), kind = kindOf(c, type);
+  if (type !== 'an' && isAbsentOn(c, s.id, ui.date)) {
+    return `<div class="srow absent" data-row="${s.id}">
+      <a class="sname-wrap" href="#/s/${c.id}/${s.id}"><span class="sname">${esc(s.name)}${fromTag(s)}</span></a>
+      <span class="abstag">abwesend</span></div>`;
+  }
   const todays = data.entries.filter(e => e.c === c.id && e.s === s.id && e.d === ui.date && e.t === type);
   let meta = '', btns, cls = '';
   if (kind === 'vh') {
@@ -416,8 +427,8 @@ function rowHTML(c, s) {
     const vals = valsFor(c, type);
     btns = vals.map(([v, label, vc]) =>
       `<button class="v ${vc} ${curV === v ? 'on' : ''}" data-a="mark" data-s="${s.id}" data-v="${v}" aria-label="${esc(t.label + ' ' + label)}">${glyph(label)}</button>`).join('')
-      + (kind === 'note' ? `<button class="v absb${cur && isAbs(cur.v) ? ' on' : ''}" data-a="absMenu" data-s="${s.id}" aria-label="Anwesenheit">${cur && isAbs(cur.v) ? (cur.v === 'AE' ? 'A' : cur.v) : 'A'}</button>` : '');
-    cls = vals.length + (kind === 'note' ? 1 : 0) > 3 ? ' five' : '';
+;
+    cls = vals.length > 3 ? ' five' : '';
   }
   return `<div class="srow${cls}" data-row="${s.id}">
     <a class="sname-wrap" href="#/s/${c.id}/${s.id}"><span class="sname">${isRisk(stats(c, s.id)) ? WARN : ''}${esc(s.name)}${fromTag(s)}</span>${meta ? `<span class="smeta">${meta}</span>` : ''}</a>
@@ -566,6 +577,7 @@ const dash = '<span class="chev">–</span>';
 
 function metricHTML(c, st, k) {
   if (k === 'hu') { const T = st.hu.y + st.hu.n; return T ? `${st.hu.y}/${T}` : dash; }
+  if (k === 'an') return st.abs.A + st.abs.AN ? `${st.abs.A ? `<span class="b-t">${st.abs.A}× abw.</span>` : ''}${st.abs.AN ? `<span>${st.abs.AN}× anw.</span>` : ''}` : dash;
   if (k === 'vh') return vhCounts(st.vh) || dash;
   const kind = kindOf(c, k);
   if (kind === 'num') { const x = st.nums[k]; return x.best == null ? dash : esc(withUnit(x.best, typeOf(c, k).unit)); }
@@ -582,7 +594,7 @@ function viewOverview(c) {
       ${(() => { const tr = trendOf(c, s.id); return `<div class="otrend">
         ${st.total == null ? '<span class="tot">Ø –</span>' : `<span class="tot ${gradeCls(st.total)}">Ø ${fmtNum(st.total)}${trendIcon(tr)}</span>`}
         ${sparkHTML(tr)}</div>`; })()}
-      <div class="metrics">${visKeys(c).map(k => `<span class="met"><span class="ml">${esc(shortOf(c, k))}</span><span class="mv">${metricHTML(c, st, k)}</span></span>`).join('')}${st.abs.A + st.abs.AN ? `<span class="met absmet"><span class="ml">Anwesenheit</span><span class="mv">${st.abs.A ? `<span class="b-t">A ${st.abs.A}</span>` : ''}${st.abs.AN ? `<span>AN ${st.abs.AN}</span>` : ''}</span></span>` : ''}</div></a>`;
+      <div class="metrics">${visKeys(c).map(k => `<span class="met"><span class="ml">${esc(shortOf(c, k))}</span><span class="mv">${metricHTML(c, st, k)}</span></span>`).join('')}</div></a>`;
   }).join('');
   return `<div class="card">${rows}</div>
     <p class="legend">Ø = gewichtete Gesamtnote (<a class="inl" href="#/b/${c.id}">${esc(weightSummary(c))}</a>).${visKeys(c).includes('hu') ? ' HÜ zeigt „gebracht / gesamt“.' : ''}${visKeys(c).some(k => kindOf(c, k) === 'num') ? ' Messwerte zeigen den Bestwert.' : ''}</p>
@@ -677,6 +689,7 @@ function viewCats(c) {
     const kind = kindOf(c, k), t = typeOf(c, k);
     if (k === 'hu') return 'gebracht / nicht gebracht';
     if (k === 'vh') return '4 Smileys mit Notiz';
+    if (k === 'an') return 'anwesend / abwesend · zählt nicht zur Note';
     if (kind === 'note') return scaleOf(c, k) === 'pm' ? '+ ~ −' : 'Note 1–5';
     if (kind === 'num') return 'Messwert' + (t.unit ? ' in ' + t.unit : '') + (t.high ? ' · höher ist besser' : ' · niedriger ist besser');
     return 'Notiz';
@@ -781,6 +794,9 @@ function viewStudent(c, sid) {
       const x = st.texts[k];
       val = x.n ? x.n + '×' : '–';
       sub = x.n ? `zuletzt: ${x.last}` : 'noch keine';
+    } else if (k === 'an') {
+      val = st.abs.A ? `<span class="b-t">${st.abs.A}× abwesend</span>` : st.abs.AN ? 'immer da' : '–';
+      sub = st.abs.A + st.abs.AN ? `${st.abs.AN}× anwesend` : 'noch nichts eingetragen';
     } else if (k === 'hu') {
       const T = st.hu.y + st.hu.n;
       val = T ? `${st.hu.y}/${T}` : '–';
@@ -801,7 +817,6 @@ function viewStudent(c, sid) {
   const tiles = `<div class="tiles">
     <a class="tile total" href="#/b/${c.id}"><div class="k">Gesamtnote</div><div class="val">${st.total == null ? '–' : fmtNum(st.total)}</div><div class="sub">${esc(weightSummary(c))}</div></a>
     ${visKeys(c).map(tile).join('')}
-    <div class="tile"><div class="k">Abwesenheiten</div><div class="val${st.abs.A ? ' b-t' : ''}">${st.abs.A || '–'}</div><div class="sub">${st.abs.AN ? `${st.abs.AN}× anwesend ohne Note` : st.abs.A ? 'Tage abwesend' : 'keine'}</div></div>
   </div>`;
   const filt = ui.filter === 'all' || visKeys(c).includes(ui.filter) ? ui.filter : 'all';
   const chips = [['all', 'Alle', null], ...visKeys(c).map(k => [k, typeOf(c, k).label, typeOf(c, k).icon])].map(([k, l, ic]) =>
@@ -820,7 +835,8 @@ function viewStudent(c, sid) {
         const cls = kind === 'num' || kind === 'text' ? 'n' : cls0;
         const title = e.t === 'vh' ? t.label + ': ' + vhLabel(e.v) : t.long;
         const note = kind === 'text' ? e.v : e.n;
-        const badge = isAbs(e.v) ? `<span class="badge abs" title="${ABS[e.v]}">${e.v}</span>`
+        const badge = e.t === 'an' ? `<span class="badge ${e.v === 'AN' ? 'g' : 'b'}">${e.v === 'AN' ? 'anwesend' : 'abwesend'}</span>`
+          : isAbs(e.v) ? `<span class="badge abs" title="${ABS[e.v]}">${e.v}</span>`
           : e.t === 'vh' || kind === 'text' ? ''
           : kind === 'num' ? `<span class="badge n">${esc(withUnit(e.v, t.unit))}</span>`
             : `<button class="badge ${cls}" data-a="entryWeight" data-v="${e.id}" aria-label="Gewichtung ändern">${glyph(label)}${e.w && e.w !== 1 ? `<small>×${fmtW(e.w)}</small>` : ''}</button>`;
@@ -1049,7 +1065,7 @@ function classTrendsXLSX(c, rows) {
   const ser = [];
   rows.forEach(r => r.tr.ser.forEach(p => ser.push([r.s.name, ddmmyyyy(p.d), p.v])));
   return xlsxBook([
-    { name: 'Trends', head: ['Name', 'Herkunft', 'Gesamtnote', 'vor 4 Wochen', 'Veränderung (+ = besser)', 'Trend', 'Note über 4', 'Abwesend (A)', 'Anwesend ohne Note (AN)', ...noteKeys.map(k => typeOf(c, k).label + ' Ø')],
+    { name: 'Trends', head: ['Name', 'Herkunft', 'Gesamtnote', 'vor 4 Wochen', 'Veränderung (+ = besser)', 'Trend', 'Note über 4', 'Abwesend', 'Anwesend', ...noteKeys.map(k => typeOf(c, k).label + ' Ø')],
       rows: rows.map(r => [r.s.name, r.s.from || '', r.st.total, r.then, r.tr.dir ? -r.tr.delta : null, r.word, isRisk(r.st) ? 'ja' : 'nein', r.st.abs.A, r.st.abs.AN, ...noteKeys.map(k => r.st.avg[k])]),
       widths: [28, 12, 12, 13, 22, 20, 12, 13, 22, ...noteKeys.map(() => 14)], num: [2, 3, 4, ...noteKeys.map((_, i) => 9 + i)] },
     { name: 'Verlauf', head: ['Name', 'Datum', 'Gesamtnote'], rows: ser, widths: [28, 12, 12], num: [2] }
@@ -1058,15 +1074,16 @@ function classTrendsXLSX(c, rows) {
 function studentTrendXLSX(c, s) {
   const r = trendRow(c, s);
   const es = entriesOf(c.id, s.id).filter(e => typeOf(c, e.t)).sort((a, b) => a.d.localeCompare(b.d));
-  const kv = [['Klasse', c.name + (s.from ? ` (aus ${s.from})` : '')], ['Gesamtnote', r.st.total], ['vor 4 Wochen', r.then], ['Veränderung (+ = besser)', r.tr.dir ? -r.tr.delta : null], ['Trend', r.word], ['Note über 4', isRisk(r.st) ? 'ja' : 'nein'], ['Abwesend (A)', r.st.abs.A], ['Anwesend ohne Note (AN)', r.st.abs.AN],
+  const kv = [['Klasse', c.name + (s.from ? ` (aus ${s.from})` : '')], ['Gesamtnote', r.st.total], ['vor 4 Wochen', r.then], ['Veränderung (+ = besser)', r.tr.dir ? -r.tr.delta : null], ['Trend', r.word], ['Note über 4', isRisk(r.st) ? 'ja' : 'nein'], ['Abwesend', r.st.abs.A], ['Anwesend', r.st.abs.AN],
     ...visKeys(c).map(k => {
       const t = typeOf(c, k), kind = kindOf(c, k), st = r.st;
+      if (k === 'an') return null;
       if (k === 'hu') { const T = st.hu.y + st.hu.n; return [t.label, T ? `${st.hu.y} von ${T} gebracht` : '']; }
       if (k === 'vh') return [t.label, `sehr gut ${st.vh.pp} · gut ${st.vh.p} · weniger gut ${st.vh.n} · schlecht ${st.vh.nn}`];
       if (kind === 'num') { const x = st.nums[k]; return [t.label + ' Bestwert', x.best == null ? '' : withUnit(x.best, t.unit)]; }
       if (kind === 'text') return [t.label, plural(st.texts[k].n, 'Notiz', 'Notizen')];
       return [t.label + ' Ø', st.avg[k]];
-    }), ['Gewichtung', weightSummary(c)]];
+    }).filter(Boolean), ['Gewichtung', weightSummary(c)]];
   return xlsxBook([
     { name: 'Übersicht', head: ['Kennzahl', 'Wert'], rows: kv, widths: [26, 40], num: [1] },
     { name: 'Verlauf', head: ['Datum', 'Gesamtnote'], rows: r.tr.ser.map(p => [ddmmyyyy(p.d), p.v]), widths: [12, 12], num: [1] },
@@ -1156,11 +1173,11 @@ function classTrendsPDF(c, rows) {
   const header = first => {
     let y = first ? pdfHead(k, 'TRENDS', c.name, [`Stand ${fmtDayLong(today())} · Gesamtnote gewichtet: ${weightSummary(c)}`,
       'Trend = Gesamtnote heute im Vergleich zu vor 4 Wochen (+ = besser). Verlauf: oben = gute Note, rot = Bereich über 4.',
-      'A = Tage abwesend · AN = anwesend ohne Note (beides zählt nicht zur Note).']) : M + 6;
+      'Abw. / Anw. = Tage abwesend / anwesend (zählt nicht zur Note).']) : M + 6;
     k.rect(M, y, W - 2 * M, 22, COL.accS);
     const hy = y + 14.5, o = { size: 8, bold: true, color: COL.acc };
     k.text(X.name + 8, hy, 'NAME', o); k.text(X.tot, hy, 'GESAMT', { ...o, align: 'right' }); k.text(X.then, hy, 'VOR 4 WO.', { ...o, align: 'right' });
-    k.text(X.chg, hy, '+/–', { ...o, align: 'right' }); k.text(X.trend, hy, 'TREND', o); k.text(X.spark, hy, 'VERLAUF', o); k.text(X.abs - 8, hy, 'A / AN', { ...o, align: 'right' });
+    k.text(X.chg, hy, '+/–', { ...o, align: 'right' }); k.text(X.trend, hy, 'TREND', o); k.text(X.spark, hy, 'VERLAUF', o); k.text(X.abs - 8, hy, 'ABW. / ANW.', { ...o, align: 'right' });
     return y + 22;
   };
   let y = header(true), idx = 0;
@@ -1237,6 +1254,7 @@ function studentTrendPDF(c, s) {
   // Kategorien
   const rowsK = visKeys(c).map(key => [typeOf(c, key).label, (() => {
     const kind = kindOf(c, key);
+    if (key === 'an') return st.abs.A + st.abs.AN ? `${st.abs.AN}× anwesend · ${st.abs.A}× abwesend` : '–';
     if (key === 'hu') { const T = st.hu.y + st.hu.n; return T ? `${st.hu.y} von ${T} gebracht` : '–'; }
     if (key === 'vh') return st.vh.pp + st.vh.p + st.vh.n + st.vh.nn ? `sehr gut ${st.vh.pp} · gut ${st.vh.p} · weniger gut ${st.vh.n} · schlecht ${st.vh.nn}` : '–';
     if (kind === 'num') { const x = st.nums[key]; return x.best == null ? '–' : `Bestwert ${withUnit(x.best, typeOf(c, key).unit)} · ${plural(x.n, 'Messung', 'Messungen')}`; }
@@ -1562,6 +1580,15 @@ const actions = {
     const c = currentClass(); if (!c) return;
     const s = c.students.find(x => x.id === d.s); if (!s) return;
     const type = curType(c);
+    if (type !== 'an' && isAbsentOn(c, s.id, ui.date)) return;
+    if (type === 'an' && d.v === 'A') {
+      const other = data.entries.filter(e => e.c === c.id && e.s === s.id && e.d === ui.date && e.t !== 'an');
+      if (other.length) {
+        const list = other.map(e => `${(typeOf(c, e.t) || { label: e.t }).label}: ${entryValue(c, e)}`).join('\n');
+        if (!await modal({ title: `${s.name} ist abwesend?`, text: `Für ${dayWord(ui.date) === 'Heute' ? 'heute' : fmtDay(ui.date)} gibt es schon Einträge, die dann entfernt werden:\n${list}`, ok: 'Abwesend setzen', danger: true })) return;
+        data.entries = data.entries.filter(e => !other.includes(e));
+      }
+    }
     if (type === 'vh') {
       const r = await behaviorSheet(s.name, d.v, typeOf(c, 'vh').label); if (!r) return;
       data.entries.push({ id: uid(), c: c.id, s: s.id, d: ui.date, t: type, v: r.v, n: r.n });
@@ -1583,6 +1610,7 @@ const actions = {
   async setVal(inp) {
     const c = currentClass(); if (!c) return;
     const type = curType(c), kind = kindOf(c, type), sid = inp.dataset.s;
+    if (isAbsentOn(c, sid, ui.date)) return;
     let v = inp.value.trim();
     if (kind === 'num' && v) {
       const n = parseFloat(v.replace(',', '.').replace(/[^\d.\-]/g, ''));
@@ -1602,25 +1630,6 @@ const actions = {
     const h = cfg(c).cats.hidden, i = h.indexOf(d.t);
     if (i >= 0) h.splice(i, 1); else h.push(d.t);
     await save(); render();
-  },
-  async absMenu(d) {
-    const c = currentClass(); if (!c) return;
-    const s = c.students.find(x => x.id === d.s); if (!s) return;
-    const type = curType(c), t = typeOf(c, type);
-    const i = data.entries.findIndex(e => e.c === c.id && e.s === s.id && e.d === ui.date && e.t === type);
-    const cur = i >= 0 ? data.entries[i] : null;
-    const opts = [['A', `${cur && cur.v === 'A' ? '✓  ' : ''}A – abwesend`], ['AN', `${cur && cur.v === 'AN' ? '✓  ' : ''}AN – anwesend (ohne Note)`]];
-    if (cur) opts.push(['note', 'Anmerkung'], ['rm', 'Eintrag entfernen', true]);
-    const k = await modal({ title: 'Anwesenheit', text: `${s.name} · ${t.label} · ${fmtDay(ui.date)}\nZählt nicht zur Note, wird aber mitgezählt.`, options: opts, cancel: 'Abbrechen' });
-    if (!k) return;
-    if (k === 'note') return actions.entryNote({ v: cur.id });
-    if (k === 'rm') data.entries.splice(i, 1);
-    else if (cur) cur.v = k;
-    else data.entries.push({ id: uid(), c: c.id, s: s.id, d: ui.date, t: type, v: k });
-    const row = document.querySelector(`[data-row="${s.id}"]`);
-    if (row) row.outerHTML = rowHTML(c, s);
-    haptic(); await save();
-    if (k !== 'rm') toast(`${s.name.split(' ').slice(-1)[0]}: ${k} – ${ABS[k]}`);
   },
   async entryNote(d, fromRow) {
     const e = data.entries.find(x => x.id === d.v); if (!e) return;
@@ -1746,19 +1755,21 @@ const actions = {
   },
   async vhStudent() {
     const c = currentClass(); const s = c && c.students.find(x => x.id === currentStudentId()); if (!s) return;
+    if (isAbsentOn(c, s.id, today())) return toast(`${s.name} ist heute abwesend`);
     const r = await behaviorSheet(s.name, 'p', typeOf(c, 'vh').label); if (!r) return;
     data.entries.push({ id: uid(), c: c.id, s: s.id, d: today(), t: 'vh', v: r.v, n: r.n });
     await save(); render(); toast('Verhalten notiert');
   },
-  async bulkHu() {
+  async bulkFill(d) {
     const c = currentClass(); if (!c) return;
+    const type = curType(c);
     let n = 0;
     for (const s of c.students) {
-      if (!data.entries.some(e => e.c === c.id && e.s === s.id && e.d === ui.date && e.t === 'hu')) {
-        data.entries.push({ id: uid(), c: c.id, s: s.id, d: ui.date, t: 'hu', v: 'y' }); n++;
+      if (!data.entries.some(e => e.c === c.id && e.s === s.id && e.d === ui.date && e.t === type) && (type === 'an' || !isAbsentOn(c, s.id, ui.date))) {
+        data.entries.push({ id: uid(), c: c.id, s: s.id, d: ui.date, t: type, v: d.v }); n++;
       }
     }
-    await save(); render(); toast(n ? `${n}× als gebracht eingetragen` : 'Alle sind schon eingetragen');
+    await save(); render(); toast(n ? `${n}× ${type === 'an' ? 'anwesend' : 'als gebracht'} eingetragen` : 'Alle sind schon eingetragen');
   },
 
   async studentMenu() {
@@ -1818,7 +1829,8 @@ const actions = {
     const head = ['Name'];
     for (const k of keys) {
       const t = typeOf(c, k), kind = kindOf(c, k);
-      if (k === 'hu') head.push(`${t.label} gebracht`, `${t.label} nicht gebracht`);
+      if (k === 'an') head.push('anwesend', 'abwesend');
+      else if (k === 'hu') head.push(`${t.label} gebracht`, `${t.label} nicht gebracht`);
       else if (k === 'vh') head.push(`${t.label} sehr gut`, `${t.label} gut`, `${t.label} weniger gut`, `${t.label} schlecht`);
       else if (kind === 'num') head.push(`${t.label} Bestwert${t.unit ? ' (' + t.unit + ')' : ''}`, `${t.label} zuletzt`, `${t.label} Messungen`);
       else if (kind === 'text') head.push(`${t.label} Anzahl`, `${t.label} zuletzt`);
@@ -1831,7 +1843,8 @@ const actions = {
       const r = [s.name + (s.from ? ` (${s.from})` : '')];
       for (const k of keys) {
         const kind = kindOf(c, k);
-        if (k === 'hu') r.push(st.hu.y, st.hu.n);
+        if (k === 'an') r.push(st.abs.AN, st.abs.A);
+        else if (k === 'hu') r.push(st.hu.y, st.hu.n);
         else if (k === 'vh') r.push(st.vh.pp, st.vh.p, st.vh.n, st.vh.nn);
         else if (kind === 'num') { const x = st.nums[k]; r.push(x.best == null ? '' : fmtVal(x.best), x.last == null ? '' : fmtVal(x.last), x.n); }
         else if (kind === 'text') { const x = st.texts[k]; r.push(x.n, x.last); }

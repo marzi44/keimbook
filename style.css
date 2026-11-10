@@ -630,3 +630,11 @@ dialog { scrollbar-width: none; }
 .sechead .link { display: inline-flex; align-items: center; gap: 5px; margin-top: 16px; }
 .sechead .link svg { width: 15px; height: 15px; }
 a.inl { color: inherit; text-decoration: underline; text-decoration-color: var(--line-2); text-underline-offset: 2px; }
+
+/* ---------- Abwesend: keine Benotung ---------- */
+.srow.absent { min-height: 56px; }
+.srow.absent .sname { color: var(--ink-3); }
+.abstag {
+  flex: none; margin-left: auto; padding: 5px 11px; border-radius: 999px;
+  background: var(--neg-soft); color: var(--neg); font-size: 13px; font-weight: 650;
+}
