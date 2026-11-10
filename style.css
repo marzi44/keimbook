@@ -231,10 +231,10 @@ main {
 /* ---------- Eintragezeilen ---------- */
 .srow { display: flex; align-items: center; gap: 10px; padding: 9px 10px 9px 16px; min-height: 62px; }
 .sname-wrap { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 3px; padding: 6px 0; }
-.sname { font-size: 16px; font-weight: 500; line-height: 1.25; overflow-wrap: break-word; -webkit-hyphens: auto; hyphens: auto; }
+.sname { font-size: 16px; font-weight: 500; line-height: 1.25; overflow-wrap: break-word; -webkit-hyphens: manual; hyphens: manual; }
 /* Fünf Notenknöpfe: wird es für den Namen zu eng, rutschen die Knöpfe sauber in eine eigene Zeile */
 .srow { flex-wrap: wrap; row-gap: 2px; }
-.srow .sname-wrap { flex: 1 1 84px; }
+.srow .sname-wrap { flex: 1 1 72px; }
 .srow .vals { margin-left: auto; }
 .srow.five .vals { gap: 5px; }
 .srow.five .v { width: 36px; height: 38px; border-radius: 11px; }
@@ -608,3 +608,15 @@ a.btn { text-decoration: none; }
 }
 @media (prefers-color-scheme: dark) { #toast .tact { background: var(--accent-soft); color: var(--accent); } }
 .ebtn { display: block; color: inherit; font: inherit; }
+
+/* ---------- Abwesenheit ---------- */
+.v.absb { font-size: 13px; font-weight: 750; color: var(--ink-3); background: none; border-style: dashed; margin-left: 3px; }
+.v.absb.on { background: var(--ink-2); border: 1px solid var(--ink-2); color: var(--surface); font-size: 12.5px; }
+.srow.five .v.absb { width: 34px; }
+.badge.abs { background: var(--fill); color: var(--ink-2); font-size: 13px; }
+.absmet .mv { gap: 8px; color: var(--ink-2); }
+
+/* Notenzeile mit A-Knopf: etwas kompakter, damit Namen Platz haben */
+.srow.five .vals { gap: 4px; }
+.srow.five .v { width: 34px; }
+.srow.five .v.absb { width: 32px; margin-left: 2px; }
