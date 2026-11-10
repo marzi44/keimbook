@@ -639,3 +639,9 @@ a.inl { color: inherit; text-decoration: underline; text-decoration-color: var(-
   background: var(--neg-soft); color: var(--neg); font-size: 13px; font-weight: 650;
 }
 .csub .b-t { white-space: nowrap; }
+
+/* Mehrfachauswahl im Export */
+.catpick { margin-top: 4px; }
+.opt.ck { display: flex; align-items: center; gap: 12px; }
+.opt.ck .grow { flex: 1; min-width: 0; }
+.opt.ck.all { color: var(--accent); font-weight: 600; }

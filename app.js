@@ -8,7 +8,7 @@ const PUBLIC_KEY = {
   x: 'kHkzCWyGjuxGxGf_3AMH2F_MKEWEjH1hfCnBf7K1Imo',
   y: 'Fv556fMFzralLJTUqYxNxI68b9Fd4ctkLzgn07BzKj0'
 };
-const APP_VERSION = '3.7';
+const APP_VERSION = '3.8';
 
 const TYPES = {
   ma: { label: 'Mitarbeit', long: 'Mitarbeit', icon: 'spark', vals: [['+', '+', 'g'], ['~', '~', 'm'], ['-', '−', 'b']] },
@@ -928,6 +928,40 @@ function modal(o) {
 }
 $('#dlg').addEventListener('click', e => { if (e.target === e.currentTarget) e.currentTarget.close(); });
 
+// Mehrfachauswahl der Kategorien für den Export
+function pickCats(c) {
+  const keys = visKeys(c), sel = new Set();
+  const row = (k, l) => `<button type="button" class="opt ck${k === '*' ? ' all' : ''}" data-k="${k}"><span class="chk"></span><span class="grow">${esc(l)}</span></button>`;
+  return modal({
+    title: 'Welche Kategorien?', text: `${c.name} · eine oder mehrere antippen`, ok: 'Weiter',
+    body: `<div class="opts catpick">${row('*', 'Alle auswählen')}${keys.map(k => row(k, typeOf(c, k).label)).join('')}</div>`,
+    mount(d) {
+      const ok = d.querySelector('.btns .primary');
+      const paint = () => {
+        const all = sel.size === keys.length;
+        d.querySelectorAll('[data-k]').forEach(b => {
+          const isAll = b.dataset.k === '*', on = isAll ? all : sel.has(b.dataset.k), some = isAll && !all && sel.size > 0;
+          const ch = b.querySelector('.chk');
+          ch.className = 'chk' + (on ? ' on' : some ? ' some' : '');
+          ch.innerHTML = on ? ICON.check : some ? '<i></i>' : '';
+          if (isAll) b.querySelector('.grow').textContent = all ? 'Alle abwählen' : 'Alle auswählen';
+        });
+        ok.disabled = !sel.size;
+        ok.textContent = sel.size ? `Weiter mit ${plural(sel.size, 'Kategorie', 'Kategorien')}` : 'Kategorien antippen';
+      };
+      d.querySelector('.catpick').addEventListener('click', e => {
+        const b = e.target.closest('[data-k]'); if (!b) return;
+        const k = b.dataset.k;
+        if (k === '*') { if (sel.size === keys.length) sel.clear(); else keys.forEach(x => sel.add(x)); }
+        else if (sel.has(k)) sel.delete(k); else sel.add(k);
+        paint();
+      });
+      paint();
+    },
+    collect() { return keys.filter(k => sel.has(k)); }
+  });
+}
+
 function behaviorSheet(name, start, title = 'Verhalten') {
   let lvl = VH_LEVELS.includes(start) ? start : 'p';
   const sel = new Set();
@@ -1240,7 +1274,27 @@ function catData(c, k) {
 }
 const catVal = (c, e) => e.t === 'an' ? (e.v === 'AN' ? 'anwesend' : 'abwesend') : entryValue(c, e);
 const cellVal = (c, e) => /^[1-5]$/.test(e.v) ? +e.v : kindOf(c, e.t) === 'num' && !isNaN(parseFloat(e.v)) ? round3(parseFloat(e.v)) : catVal(c, e);
-function catXLSX(c, k) {
+function catXLSX(c, keys) {
+  keys = [].concat(keys);
+  if (keys.length === 1) return catXLSX1(c, keys[0]);
+  const all = keys.map(k => ({ k, ...catData(c, k) }));
+  const studs = [...c.students].sort(byName);
+  const head = ['Name', 'Herkunft'], num = [];
+  all.forEach(a => catSummary(c, a.k, []).forEach(([l]) => { if (l === 'Ø') num.push(head.length); head.push(`${a.t.label} ${l}`); }));
+  const used = new Set(['Übersicht', 'Einträge']);
+  const sheetName = l => { let b = String(l).replace(/[\[\]:*?\/\\]/g, '').slice(0, 28) || 'Kategorie', n = b, i = 2; while (used.has(n)) n = `${b} ${i++}`; used.add(n); return n; };
+  const val = v => typeof v === 'number' ? v : v ?? '';
+  return xlsxBook([
+    { name: 'Übersicht', head, num, widths: [28, 12, ...head.slice(2).map(h => Math.min(26, Math.max(12, h.length + 2)))],
+      rows: studs.map(s => [s.name, s.from || '', ...all.flatMap(a => a.rows.find(r => r.s.id === s.id).sum.map(x => val(x[1])))]) },
+    ...all.map(a => ({ name: sheetName(a.t.label), head: ['Name', ...a.dates.map(ddmmyyyy)], widths: [28, ...a.dates.map(() => 11)], num: [],
+      rows: a.rows.map(r => [r.s.name, ...a.dates.map(d => { const e = r.es.find(x => x.d === d); return e ? cellVal(c, e) : ''; })]) })),
+    { name: 'Einträge', head: ['Datum', 'Name', 'Kategorie', 'Wert', 'Gewicht', 'Anmerkung'], widths: [12, 28, 18, 18, 9, 50], num: [],
+      rows: all.flatMap((a, ai) => a.rows.flatMap(r => r.es.map(e => ({ d: e.d, ai, row: [ddmmyyyy(e.d), r.s.name, a.t.label, cellVal(c, e), e.w || 1, a.kind === 'text' ? '' : e.n || ''] }))))
+        .sort((x, y) => x.d.localeCompare(y.d) || x.ai - y.ai).map(x => x.row) }
+  ]);
+}
+function catXLSX1(c, k) {
   const { t, rows, dates } = catData(c, k);
   const sumHead = rows.length ? rows[0].sum.map(x => x[0]) : [];
   const fmtCell = v => typeof v === 'number' ? v : v ?? '';
@@ -1250,15 +1304,15 @@ function catXLSX(c, k) {
     { name: 'Einträge', head: ['Datum', 'Name', 'Wert', 'Gewicht', 'Anmerkung'], rows: rows.flatMap(r => r.es.map(e => [ddmmyyyy(e.d), r.s.name, cellVal(c, e), e.w || 1, kindOf(c, k) === 'text' ? '' : e.n || ''])).sort((a, b) => a[0].split('.').reverse().join().localeCompare(b[0].split('.').reverse().join())), widths: [12, 28, 18, 9, 50], num: [] }
   ]);
 }
-function catPDF(c, k) {
-  const kit = pdfKit(), { W, H, M, COL } = kit, { t, kind, rows, dates } = catData(c, k);
+function catSection(kit, c, k, eyebrow) {
+  const { W, H, M, COL } = kit, { t, kind, rows, dates } = catData(c, k);
   const n = rows.reduce((a, r) => a + r.es.length, 0);
   const span = dates.length ? `${fmtDay(dates[0])} bis ${fmtDay(dates[dates.length - 1])}` : 'noch keine Einträge';
   const desc = k === 'an' ? 'anwesend / abwesend' : k === 'hu' ? 'gebracht / nicht gebracht' : k === 'vh' ? 'vier Stufen von sehr gut bis schlecht'
     : kind === 'num' ? `Messwert${t.unit ? ' in ' + t.unit : ''}, ${t.high ? 'höher' : 'niedriger'} ist besser` : kind === 'text' ? 'Notizen' : scaleOf(c, k) === 'pm' ? 'Bewertung + ~ −' : 'Noten 1 bis 5';
   const X = { name: M, sum: M + 150, list: M + 262 }, LW = W - M - X.list - 8, FS = 8.5, LH = 11;
   const head = first => {
-    let y = first ? pdfHead(kit, 'KATEGORIE', t.label, [`${c.name} · ${desc}`, `${plural(n, 'Eintrag', 'Einträge')} · ${span} · Stand ${fmtDayLong(today())}`]) : M + 6;
+    let y = first ? pdfHead(kit, eyebrow, t.label, [`${c.name} · ${desc}`, `${plural(n, 'Eintrag', 'Einträge')} · ${span} · Stand ${fmtDayLong(today())}`]) : M + 6;
     kit.rect(M, y, W - 2 * M, 22, COL.accS);
     const o = { size: 8, bold: true, color: COL.acc };
     kit.text(X.name + 8, y + 14.5, 'NAME', o); kit.text(X.sum, y + 14.5, 'ZUSAMMENFASSUNG', o); kit.text(X.list, y + 14.5, 'EINTRÄGE (DATUM WERT)', o);
@@ -1283,7 +1337,54 @@ function catPDF(c, k) {
     kit.line([[M, y + RH], [W - M, y + RH]], COL.line, .5);
     y += RH;
   }
-  return kit.build(`${t.label} ${c.name}`, `Klassenbuch · ${c.name} · ${t.label}`);
+}
+// Kurzwert je Kategorie für die Übersichtsseite
+function catShort(c, k, es) {
+  if (!es.length) return ['–', null];
+  const sum = catSummary(c, k, es), kind = kindOf(c, k), t = typeOf(c, k);
+  if (k === 'an') return [String(sum[1][1]), null, sum[1][1] ? 'neg' : null];
+  if (k === 'hu') return [`${sum[0][1]} / ${sum[0][1] + sum[1][1]}`, null];
+  if (k === 'vh') return [vhLabel(es[es.length - 1].v), null];
+  if (kind === 'num') return [sum[0][1] == null ? '–' : withUnit(sum[0][1], t.unit), null];
+  if (kind === 'text') return [plural(es.length, 'Notiz', 'Notizen'), null];
+  return sum[0][1] == null ? ['–', null] : ['Ø ' + fmtNum(sum[0][1]), sum[0][1]];
+}
+function catOverview(kit, c, keys) {
+  const { W, H, M, COL } = kit;
+  const labels = keys.map(k => typeOf(c, k).label);
+  const legend = [keys.some(k => kindOf(c, k) === 'note') && 'Ø = gewichteter Schnitt', keys.includes('an') && 'Anwesenheit = Tage abwesend',
+    keys.includes('hu') && 'Hausübung = gebracht / gesamt', keys.includes('vh') && 'Verhalten = zuletzt', keys.some(k => kindOf(c, k) === 'num') && 'Messwerte = Bestwert'].filter(Boolean).join(' · ');
+  const NW = keys.length > 4 ? 120 : 150, CW = (W - 2 * M - NW) / keys.length, FS = CW > 80 ? 9.5 : 8.8, RH = 24;
+  const hs = l => { let z = 8; while (z > 6 && kit.wid(l, z, true) > CW - 6) z -= .25; return z; };
+  const by = Object.fromEntries(keys.map(k => [k, catData(c, k)]));
+  const head = first => {
+    const y = first ? pdfHead(kit, 'KATEGORIEN', c.name, [labels.join(' · '), `${legend ? legend + ' · ' : ''}Stand ${fmtDayLong(today())}`]) : M + 6;
+    kit.rect(M, y, W - 2 * M, 22, COL.accS);
+    const o = { size: 8, bold: true, color: COL.acc };
+    kit.text(M + 8, y + 14.5, 'NAME', o);
+    labels.forEach((l, i) => { const u = l.toUpperCase(), z = hs(u); kit.text(M + NW + i * CW, y + 14.5, kit.fit(u, CW - 6, z, true), { ...o, size: z }); });
+    return y + 22;
+  };
+  let y = head(true);
+  [...c.students].sort(byName).forEach((s, idx) => {
+    if (y + RH > H - M - 20) { kit.page(); y = head(false); }
+    if (idx % 2) kit.rect(M, y, W - 2 * M, RH, COL.zebra);
+    kit.text(M + 8, y + 15.5, kit.fit(s.name + (s.from ? ` (${s.from})` : ''), NW - 16, 9.5), { size: 9.5 });
+    keys.forEach((k, i) => {
+      const r = by[k].rows.find(x => x.s.id === s.id), [txt, g, tone] = catShort(c, k, r ? r.es : []);
+      kit.text(M + NW + i * CW, y + 15.5, kit.fit(txt, CW - 8, FS, g != null), { size: FS, bold: g != null || !!tone, color: txt === '–' ? COL.ink3 : g != null ? kit.gc(g) : tone ? COL[tone] : COL.ink });
+    });
+    kit.line([[M, y + RH], [W - M, y + RH]], COL.line, .5);
+    y += RH;
+  });
+}
+function catPDF(c, keys) {
+  keys = [].concat(keys);
+  const kit = pdfKit(), multi = keys.length > 1;
+  if (multi) catOverview(kit, c, keys);
+  keys.forEach((k, i) => { if (multi) kit.page(); catSection(kit, c, k, multi ? `KATEGORIE ${i + 1} VON ${keys.length}` : 'KATEGORIE'); });
+  const name = multi ? 'Kategorien' : typeOf(c, keys[0]).label;
+  return kit.build(`${name} ${c.name}`, `Klassenbuch · ${c.name} · ${name}`);
 }
 
 function studentTrendPDF(c, s) {
@@ -1879,7 +1980,7 @@ const actions = {
 
   async exportMenu() {
     const c = currentClass(); if (!c) return;
-    const what = await modal({ title: 'Exportieren', text: c.name, options: [['tr', 'Trends der Klasse'], ['cat', 'Eine Kategorie'], ['csv', 'Rohdaten (CSV)']] });
+    const what = await modal({ title: 'Exportieren', text: c.name, options: [['tr', 'Trends der Klasse'], ['cat', 'Kategorien'], ['csv', 'Rohdaten (CSV)']] });
     if (!what) return;
     if (what === 'csv') {
       const k = await modal({ title: 'Rohdaten (CSV)', text: c.name, options: [['ov', 'Übersicht – eine Zeile pro Kind'], ['all', 'Alle Einträge – eine Zeile pro Eintrag']] });
@@ -1889,11 +1990,12 @@ const actions = {
     }
     let cat = null;
     if (what === 'cat') {
-      cat = await modal({ title: 'Welche Kategorie?', text: c.name, options: visKeys(c).map(k => [k, typeOf(c, k).label]) });
-      if (!cat) return;
+      cat = await pickCats(c);
+      if (!cat || !cat.length) return;
     }
-    const label = cat ? typeOf(c, cat).label : 'Trends';
-    const fmt = await modal({ title: label, text: c.name, options: [['pdf', 'Als PDF'], ['xlsx', 'Als Excel (.xlsx)']] });
+    const label = !cat ? 'Trends' : cat.length === 1 ? typeOf(c, cat[0]).label : 'Kategorien';
+    const fmt = await modal({ title: cat && cat.length > 1 ? plural(cat.length, 'Kategorie', 'Kategorien') : label,
+      text: cat && cat.length > 1 ? cat.map(k => typeOf(c, k).label).join(' · ') : c.name, options: [['pdf', 'Als PDF'], ['xlsx', 'Als Excel (.xlsx)']] });
     if (!fmt) return;
     const base = `${safeName(label)}_${safeName(c.name)}_${today()}`;
     if (fmt === 'pdf') saveFile(base + '.pdf', 'application/pdf', cat ? catPDF(c, cat) : classTrendsPDF(c, trendRows(c)));
