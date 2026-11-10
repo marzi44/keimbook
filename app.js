@@ -8,7 +8,7 @@ const PUBLIC_KEY = {
   x: 'kHkzCWyGjuxGxGf_3AMH2F_MKEWEjH1hfCnBf7K1Imo',
   y: 'Fv556fMFzralLJTUqYxNxI68b9Fd4ctkLzgn07BzKj0'
 };
-const APP_VERSION = '3.0';
+const APP_VERSION = '3.1';
 
 const TYPES = {
   ma: { label: 'Mitarbeit', long: 'Mitarbeit', icon: 'spark', vals: [['+', '+', 'g'], ['~', '~', 'm'], ['-', '−', 'b']] },
@@ -417,6 +417,7 @@ function rowHTML(c, s) {
     cls = kind === 'text' ? ' textrow' : '';
   } else {
     const cur = todays[0];
+    if (cur && cur.n) meta = `<span class="snote">${ICON.speech.replace('width="18" height="18"', 'width="12" height="12"')}${esc(cur.n)}</span>`;
     const curV = cur ? (scaleOf(c, type) === 'pm' ? toPm(cur.v) : ({ '+': '1', '~': '3', '-': '5' }[cur.v] || cur.v)) : null;
     const vals = valsFor(c, type);
     btns = vals.map(([v, label, vc]) =>
@@ -829,7 +830,8 @@ function viewStudent(c, sid) {
           : kind === 'num' ? `<span class="badge n">${esc(withUnit(e.v, t.unit))}</span>`
             : `<button class="badge ${cls}" data-a="entryWeight" data-v="${e.id}" aria-label="Gewichtung ändern">${glyph(label)}${e.w && e.w !== 1 ? `<small>×${fmtW(e.w)}</small>` : ''}</button>`;
         return `<div class="erow"><span class="eicon ${e.t === 'vh' ? vhCls(e.v) : cls}">${e.t === 'vh' ? face(e.v, 22) : ICON[t.icon]}</span>
-          <div class="etext"><div class="etitle">${esc(title)}</div>${note ? `<div class="enote">${esc(note)}</div>` : ''}</div>
+          ${kind === 'text' ? `<div class="etext"><div class="etitle">${esc(title)}</div><div class="enote">${esc(note)}</div></div>`
+            : `<button class="etext ebtn" data-a="entryNote" data-v="${e.id}" aria-label="Anmerkung bearbeiten"><div class="etitle">${esc(title)}</div>${note ? `<div class="enote">${esc(note)}</div>` : '<div class="eadd">+ Anmerkung</div>'}</button>`}
           ${badge}
           <button class="del" data-a="delEntry" data-v="${e.id}" aria-label="Eintrag löschen">${ICON.close}</button></div>`;
       }).join('')}</div>`;
@@ -842,7 +844,7 @@ function viewStudent(c, sid) {
     ${tiles}
     ${trendCard(c, sid)}
     <div class="cats filters">${chips}</div>
-    ${es.some(e => weighable(c, e.t) && e.t !== 'vh') ? '<p class="fine">Tipp: Tippe auf eine Note, um sie halb, doppelt oder dreifach zählen zu lassen.</p>' : ''}
+    ${es.some(e => weighable(c, e.t) && e.t !== 'vh') ? '<p class="fine">Tipp: Tippe auf einen Eintrag, um eine Anmerkung zu schreiben – oder auf die Note, um sie halb, doppelt oder dreifach zählen zu lassen.</p>' : ''}
     ${list}`;
 }
 
@@ -944,9 +946,18 @@ function behaviorSheet(name, start, title = 'Verhalten') {
 }
 
 let toastTimer;
-function toast(msg) {
-  const t = $('#toast'); t.textContent = msg; t.classList.add('show');
-  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 2600);
+function toast(msg, act) {
+  const t = $('#toast');
+  t.textContent = msg;
+  t.classList.toggle('act', !!act);
+  if (act) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'tact'; b.textContent = act.label;
+    b.onclick = () => { t.classList.remove('show'); act.fn(); };
+    t.appendChild(b);
+  }
+  t.classList.add('show');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), act ? 4000 : 2600);
 }
 const haptic = () => { try { if (navigator.vibrate) navigator.vibrate(8); } catch { } };
 
@@ -1266,9 +1277,12 @@ const actions = {
       toast('Verhalten notiert: ' + vhLabel(r.v));
     } else {
       const i = data.entries.findIndex(e => e.c === c.id && e.s === d.s && e.d === ui.date && e.t === type);
-      if (i >= 0 && data.entries[i].v === d.v) data.entries.splice(i, 1);
-      else if (i >= 0) data.entries[i].v = d.v;
-      else data.entries.push({ id: uid(), c: c.id, s: d.s, d: ui.date, t: type, v: d.v });
+      if (i >= 0 && data.entries[i].v === d.v) return actions.entryNote({ v: data.entries[i].id }, true);
+      let e;
+      if (i >= 0) { e = data.entries[i]; e.v = d.v; }
+      else { e = { id: uid(), c: c.id, s: d.s, d: ui.date, t: type, v: d.v }; data.entries.push(e); }
+      const lbl = valInfo(type, d.v)[1];
+      toast(`${s.name.split(' ').slice(-1)[0]}: ${typeOf(c, type).label} ${lbl === '−' ? '−' : lbl}`, { label: e.n ? 'Anmerkung ändern' : 'Anmerkung', fn: () => actions.entryNote({ v: e.id }) });
     }
     const row = document.querySelector(`[data-row="${d.s}"]`);
     if (row) row.outerHTML = rowHTML(c, s);
@@ -1297,6 +1311,31 @@ const actions = {
     const h = cfg(c).cats.hidden, i = h.indexOf(d.t);
     if (i >= 0) h.splice(i, 1); else h.push(d.t);
     await save(); render();
+  },
+  async entryNote(d, fromRow) {
+    const e = data.entries.find(x => x.id === d.v); if (!e) return;
+    const c = getClass(e.c), t = typeOf(c, e.t) || { label: e.t }, kind = kindOf(c, e.t);
+    const s = c && c.students.find(x => x.id === e.s);
+    const val = e.t === 'vh' ? vhLabel(e.v) : kind === 'num' ? withUnit(e.v, t.unit) : valInfo(e.t, e.v)[1];
+    let remove = false;
+    const r = await modal({
+      title: 'Anmerkung', ok: 'Speichern',
+      text: `${s ? s.name + ' · ' : ''}${t.label} ${val} · ${fmtDay(e.d)}`,
+      body: `<textarea name="note" rows="4" placeholder="z. B. Thema, Beobachtung, Begründung der Note …">${esc(e.n || '')}</textarea>
+        ${fromRow ? '<button type="button" class="link danger left" data-rm>Eintrag entfernen</button>' : ''}`,
+      mount(dl) {
+        const b = dl.querySelector('[data-rm]');
+        if (b) b.addEventListener('click', () => { remove = true; dl.querySelector('[value=ok]').click(); });
+        setTimeout(() => { const ta = dl.querySelector('[name=note]'); ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }, 80);
+      },
+      collect(dl) { return { n: dl.querySelector('[name=note]').value.trim() }; }
+    });
+    if (!r) return;
+    if (remove) { data.entries = data.entries.filter(x => x !== e); toast('Eintrag entfernt'); }
+    else { if (r.n) e.n = r.n; else delete e.n; toast(r.n ? 'Anmerkung gespeichert' : 'Anmerkung entfernt'); }
+    await save();
+    const row = c && document.querySelector(`[data-row="${e.s}"]`);
+    if (row && s && location.hash.startsWith('#/k/')) row.outerHTML = rowHTML(c, s); else render();
   },
   async catEdit(d) {
     const c = currentClass(); if (!c) return;
