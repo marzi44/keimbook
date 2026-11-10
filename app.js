@@ -8,7 +8,7 @@ const PUBLIC_KEY = {
   x: 'kHkzCWyGjuxGxGf_3AMH2F_MKEWEjH1hfCnBf7K1Imo',
   y: 'Fv556fMFzralLJTUqYxNxI68b9Fd4ctkLzgn07BzKj0'
 };
-const APP_VERSION = '3.6';
+const APP_VERSION = '3.7';
 
 const TYPES = {
   ma: { label: 'Mitarbeit', long: 'Mitarbeit', icon: 'spark', vals: [['+', '+', 'g'], ['~', '~', 'm'], ['-', '−', 'b']] },
@@ -95,7 +95,8 @@ const scaleOf = (c, t) => kindOf(c, t) === 'note' ? (cfg(c).scale[t] || 'grade')
 const valsFor = (c, t) => kindOf(c, t) === 'note' ? SCALES[scaleOf(c, t)] : TYPES[t].vals;
 const toPm = v => ({ '1': '+', '2': '+', '3': '~', '4': '-', '5': '-' }[v] || v);
 const fmtW = w => w === 0.5 ? '½' : String(w).replace('.', ',');
-const fmtVal = v => String(v).replace('.', ',');
+const round3 = n => Math.round(n * 1000) / 1000;
+const fmtVal = v => { const n = Number(v); return String(String(v).trim() !== '' && isFinite(n) ? round3(n) : v).replace('.', ','); };
 // Abwesenheit: wird eingetragen, zählt aber nicht zur Note
 const ABS = { A: 'abwesend', AN: 'anwesend (ohne Note)', AE: 'abwesend' };
 const isAbs = v => v === 'A' || v === 'AN' || v === 'AE';
@@ -851,7 +852,6 @@ function viewStudent(c, sid) {
   return `<div class="phero"><span class="av lg ${avc(s.name)}">${esc(initials(s.name))}</span>
       <div><div class="eyebrow">${esc(c.name)}${s.from ? ' · aus ' + esc(s.from) : ''}</div><h1>${esc(s.name)}</h1>
       ${isRisk(st) ? `<div class="riskpill">${WARN} Gesamtnote über 4</div>` : ''}</div></div>
-    ${visKeys(c).includes('vh') ? `<button class="btn secondary block" data-a="vhStudent">${ICON.smile} ${esc(typeOf(c, 'vh').label)} notieren</button>` : ''}
     ${tiles}
     ${trendCard(c, sid)}
     <div class="cats filters">${chips}</div>
@@ -917,7 +917,8 @@ function modal(o) {
       if (d.open) d.close();
     };
     d.querySelector('form').addEventListener('submit', e => { e.preventDefault(); finish(e.submitter ? e.submitter.value : 'ok'); });
-    d.onclose = () => finish('');
+    // ein verspätetes close-Ereignis des vorigen Dialogs darf diesen nicht schließen
+    d.onclose = () => { if (!d.open) finish(''); };
     if (o.mount) o.mount(d);
     d.showModal();
     d.scrollTop = 0;
@@ -1130,6 +1131,12 @@ function pdfKit() {
       k.line(pts, k.tc(dir), 1.4); k.circle(pts[pts.length - 1][0], pts[pts.length - 1][1], 1.8, k.tc(dir));
       return true;
     },
+    wrap(str, max, size, bold) {
+      const words = String(str).split(/\s+/), lines = []; let cur = '';
+      for (const w of words) { const t = cur ? cur + ' ' + w : w; if (wid(t, size, bold) > max && cur) { lines.push(cur); cur = w; } else cur = t; }
+      if (cur) lines.push(cur);
+      return lines;
+    },
     page() { pages.push(ops.join('\n')); ops = []; },
     build(title, footerLeft) {
       if (ops.length) k.page();
@@ -1204,6 +1211,79 @@ function classTrendsPDF(c, rows) {
   const n = rows.length, up = rows.filter(r => r.tr.dir === 'up').length, down = rows.filter(r => r.tr.dir === 'down').length, risk = rows.filter(r => isRisk(r.st)).length;
   k.text(M, Math.min(y + 24, H - M - 30), `${n} Schüler:innen · ${up} verbessern sich · ${down} verschlechtern sich · ${risk} mit Gesamtnote über 4`, { size: 9, color: COL.ink2 });
   return k.build('Trends ' + c.name, `Klassenbuch · ${c.name}`);
+}
+
+/* ---------- Export einer einzelnen Kategorie ---------- */
+function catSummary(c, k, es) {
+  const kind = kindOf(c, k), t = typeOf(c, k);
+  const cnt = v => es.filter(e => e.v === v).length;
+  if (k === 'an') return [['anwesend', cnt('AN')], ['abwesend', cnt('A') + cnt('AE')]];
+  if (k === 'hu') { const y = cnt('y'), n = cnt('n'); return [['gebracht', y], ['nicht gebracht', n], ['Quote', y + n ? Math.round(y / (y + n) * 100) + ' %' : '']]; }
+  if (k === 'vh') return [['sehr gut', cnt('pp')], ['gut', cnt('p')], ['weniger gut', cnt('n')], ['schlecht', cnt('nn')]];
+  if (kind === 'num') {
+    const v = es.map(e => parseFloat(e.v)).filter(x => !isNaN(x));
+    const best = v.length ? (t.high ? Math.max(...v) : Math.min(...v)) : null;
+    return [['Bestwert' + (t.unit ? ` (${t.unit})` : ''), best == null ? null : round3(best)], ['zuletzt', v.length ? round3(v[v.length - 1]) : null], ['Messungen', v.length]];
+  }
+  if (kind === 'text') return [['Notizen', es.length], ['zuletzt', es.length ? es[es.length - 1].v : '']];
+  const g = es.filter(e => !isAbs(e.v) && NUM[e.v] != null);
+  let S = 0, W = 0; g.forEach(e => { const w = e.w || 1; S += NUM[e.v] * w; W += w; });
+  return [['Ø', W ? S / W : null], ['Einträge', g.length]];
+}
+function catData(c, k) {
+  const rows = [...c.students].sort(byName).map(s => {
+    const es = entriesOf(c.id, s.id).filter(e => e.t === k).sort((a, b) => a.d.localeCompare(b.d));
+    return { s, es, sum: catSummary(c, k, es) };
+  });
+  const dates = [...new Set(rows.flatMap(r => r.es.map(e => e.d)))].sort();
+  return { t: typeOf(c, k), kind: kindOf(c, k), rows, dates };
+}
+const catVal = (c, e) => e.t === 'an' ? (e.v === 'AN' ? 'anwesend' : 'abwesend') : entryValue(c, e);
+const cellVal = (c, e) => /^[1-5]$/.test(e.v) ? +e.v : kindOf(c, e.t) === 'num' && !isNaN(parseFloat(e.v)) ? round3(parseFloat(e.v)) : catVal(c, e);
+function catXLSX(c, k) {
+  const { t, rows, dates } = catData(c, k);
+  const sumHead = rows.length ? rows[0].sum.map(x => x[0]) : [];
+  const fmtCell = v => typeof v === 'number' ? v : v ?? '';
+  return xlsxBook([
+    { name: 'Übersicht', head: ['Name', 'Herkunft', ...sumHead], rows: rows.map(r => [r.s.name, r.s.from || '', ...r.sum.map(x => fmtCell(x[1]))]), widths: [28, 12, ...sumHead.map(() => 16)], num: sumHead.map((h, i) => h === 'Ø' ? 2 + i : -1) },
+    { name: 'Tabelle', head: ['Name', ...dates.map(ddmmyyyy)], rows: rows.map(r => [r.s.name, ...dates.map(d => { const e = r.es.find(x => x.d === d); return e ? cellVal(c, e) : ''; })]), widths: [28, ...dates.map(() => 11)], num: [] },
+    { name: 'Einträge', head: ['Datum', 'Name', 'Wert', 'Gewicht', 'Anmerkung'], rows: rows.flatMap(r => r.es.map(e => [ddmmyyyy(e.d), r.s.name, cellVal(c, e), e.w || 1, kindOf(c, k) === 'text' ? '' : e.n || ''])).sort((a, b) => a[0].split('.').reverse().join().localeCompare(b[0].split('.').reverse().join())), widths: [12, 28, 18, 9, 50], num: [] }
+  ]);
+}
+function catPDF(c, k) {
+  const kit = pdfKit(), { W, H, M, COL } = kit, { t, kind, rows, dates } = catData(c, k);
+  const n = rows.reduce((a, r) => a + r.es.length, 0);
+  const span = dates.length ? `${fmtDay(dates[0])} bis ${fmtDay(dates[dates.length - 1])}` : 'noch keine Einträge';
+  const desc = k === 'an' ? 'anwesend / abwesend' : k === 'hu' ? 'gebracht / nicht gebracht' : k === 'vh' ? 'vier Stufen von sehr gut bis schlecht'
+    : kind === 'num' ? `Messwert${t.unit ? ' in ' + t.unit : ''}, ${t.high ? 'höher' : 'niedriger'} ist besser` : kind === 'text' ? 'Notizen' : scaleOf(c, k) === 'pm' ? 'Bewertung + ~ −' : 'Noten 1 bis 5';
+  const X = { name: M, sum: M + 150, list: M + 262 }, LW = W - M - X.list - 8, FS = 8.5, LH = 11;
+  const head = first => {
+    let y = first ? pdfHead(kit, 'KATEGORIE', t.label, [`${c.name} · ${desc}`, `${plural(n, 'Eintrag', 'Einträge')} · ${span} · Stand ${fmtDayLong(today())}`]) : M + 6;
+    kit.rect(M, y, W - 2 * M, 22, COL.accS);
+    const o = { size: 8, bold: true, color: COL.acc };
+    kit.text(X.name + 8, y + 14.5, 'NAME', o); kit.text(X.sum, y + 14.5, 'ZUSAMMENFASSUNG', o); kit.text(X.list, y + 14.5, 'EINTRÄGE (DATUM WERT)', o);
+    return y + 22;
+  };
+  const sumText = sum => {
+    const l = sum.filter(x => x[1] !== null && x[1] !== '' && !(x[0] === 'zuletzt' && kind === 'text') && !(k === 'vh' && x[1] === 0))
+      .map(([l, v]) => l === 'Ø' ? `Ø ${fmtNum(v)}` : l.startsWith('Bestwert') ? `Bestwert ${withUnit(v, t.unit)}` : l === 'zuletzt' ? `zuletzt ${withUnit(v, t.unit)}` : `${v} ${l}`);
+    return l.length ? l : ['–'];
+  };
+  let y = head(true), idx = 0;
+  for (const r of rows) {
+    const tokens = r.es.map(e => `${dt(e.d).toLocaleDateString('de-AT', { day: 'numeric', month: 'numeric' })} ${kind === 'text' ? '' : catVal(c, e).replace(' – ', ' ')}${e.w && e.w !== 1 ? ` ×${fmtW(e.w)}` : ''}${(kind === 'text' ? e.v : e.n) ? ` (${kit.fit(kind === 'text' ? e.v : e.n, 150, FS)})` : ''}`.replace(/\s+/g, ' ').trim());
+    const lines = tokens.length ? kit.wrap(tokens.join('  ·  '), LW, FS) : ['–'];
+    const sl = sumText(r.sum);
+    const RH = Math.max(24, Math.max(lines.length, sl.length) * LH + 12);
+    if (y + RH > H - M - 20) { kit.page(); y = head(false); }
+    if (idx++ % 2) kit.rect(M, y, W - 2 * M, RH, COL.zebra);
+    kit.text(X.name + 8, y + 15, kit.fit(r.s.name + (r.s.from ? ` (${r.s.from})` : ''), X.sum - X.name - 16, 9.5), { size: 9.5 });
+    sl.forEach((l, i) => { const hi = i === 0 && l !== '–'; kit.text(X.sum, y + 15 + i * LH, kit.fit(l, X.list - X.sum - 8, 8.8, hi), { size: 8.8, bold: hi, color: hi ? COL.ink : l === '–' ? COL.ink3 : COL.ink2 }); });
+    lines.forEach((l, i) => kit.text(X.list, y + 15 + i * LH, l, { size: FS, color: tokens.length ? COL.ink2 : COL.ink3 }));
+    kit.line([[M, y + RH], [W - M, y + RH]], COL.line, .5);
+    y += RH;
+  }
+  return kit.build(`${t.label} ${c.name}`, `Klassenbuch · ${c.name} · ${t.label}`);
 }
 
 function studentTrendPDF(c, s) {
@@ -1774,7 +1854,8 @@ const actions = {
 
   async studentMenu() {
     const c = currentClass(); const s = c && c.students.find(x => x.id === currentStudentId()); if (!s) return;
-    const k = await modal({ title: s.name, options: [['exp', 'Trend exportieren (PDF / Excel)'], ['ren', 'Umbenennen'], ['del', 'Aus der Klasse entfernen', true]], cancel: 'Schließen' });
+    const k = await modal({ title: s.name, options: [...(visKeys(c).includes('vh') ? [['vh', `${typeOf(c, 'vh').label} notieren`]] : []), ['exp', 'Trend exportieren'], ['ren', 'Umbenennen'], ['del', 'Aus der Klasse entfernen', true]], cancel: 'Schließen' });
+    if (k === 'vh') return actions.vhStudent();
     if (k === 'exp') return actions.studentExport();
     if (k === 'ren') {
       const n = (await modal({ title: 'Umbenennen', input: true, value: s.name, ok: 'Speichern' }) || '').trim();
@@ -1798,13 +1879,25 @@ const actions = {
 
   async exportMenu() {
     const c = currentClass(); if (!c) return;
-    const k = await modal({ title: 'Exportieren', text: c.name, options: [['pdf', 'Trends als PDF'], ['xlsx', 'Trends als Excel (.xlsx)'], ['ov', 'Übersicht als CSV'], ['all', 'Alle Einträge als CSV']] });
-    if (!k) return;
-    const base = `Trends_${safeName(c.name)}_${today()}`;
-    if (k === 'pdf') saveFile(base + '.pdf', 'application/pdf', classTrendsPDF(c, trendRows(c)));
-    if (k === 'xlsx') saveFile(base + '.xlsx', XLSX_MIME, classTrendsXLSX(c, trendRows(c)));
-    if (k === 'ov') actions.exportOverview();
-    if (k === 'all') actions.exportEntries();
+    const what = await modal({ title: 'Exportieren', text: c.name, options: [['tr', 'Trends der Klasse'], ['cat', 'Eine Kategorie'], ['csv', 'Rohdaten (CSV)']] });
+    if (!what) return;
+    if (what === 'csv') {
+      const k = await modal({ title: 'Rohdaten (CSV)', text: c.name, options: [['ov', 'Übersicht – eine Zeile pro Kind'], ['all', 'Alle Einträge – eine Zeile pro Eintrag']] });
+      if (k === 'ov') actions.exportOverview();
+      if (k === 'all') actions.exportEntries();
+      return;
+    }
+    let cat = null;
+    if (what === 'cat') {
+      cat = await modal({ title: 'Welche Kategorie?', text: c.name, options: visKeys(c).map(k => [k, typeOf(c, k).label]) });
+      if (!cat) return;
+    }
+    const label = cat ? typeOf(c, cat).label : 'Trends';
+    const fmt = await modal({ title: label, text: c.name, options: [['pdf', 'Als PDF'], ['xlsx', 'Als Excel (.xlsx)']] });
+    if (!fmt) return;
+    const base = `${safeName(label)}_${safeName(c.name)}_${today()}`;
+    if (fmt === 'pdf') saveFile(base + '.pdf', 'application/pdf', cat ? catPDF(c, cat) : classTrendsPDF(c, trendRows(c)));
+    else saveFile(base + '.xlsx', XLSX_MIME, cat ? catXLSX(c, cat) : classTrendsXLSX(c, trendRows(c)));
   },
   async studentExport() {
     const c = currentClass(); const s = c && c.students.find(x => x.id === currentStudentId()); if (!s) return;
