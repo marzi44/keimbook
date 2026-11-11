@@ -1,5 +1,5 @@
 'use strict';
-/* Klassenbuch – läuft komplett lokal. Keine Netzwerkanfragen, keine externen Dienste. */
+/* KeimBook – läuft komplett lokal. Keine Netzwerkanfragen, keine externen Dienste. */
 
 // Öffentlicher Lizenzschlüssel. Lizenzen können nur mit dem passenden privaten Schlüssel
 // (im Ordner "PRIVAT-nicht-hochladen") erzeugt werden.
@@ -8,7 +8,7 @@ const PUBLIC_KEY = {
   x: 'kHkzCWyGjuxGxGf_3AMH2F_MKEWEjH1hfCnBf7K1Imo',
   y: 'Fv556fMFzralLJTUqYxNxI68b9Fd4ctkLzgn07BzKj0'
 };
-const APP_VERSION = '4.4';
+const APP_VERSION = '4.5';
 
 const TYPES = {
   ma: { label: 'Mitarbeit', long: 'Mitarbeit', icon: 'spark', vals: [['+', '+', 'g'], ['~', '~', 'm'], ['-', '−', 'b']] },
@@ -370,7 +370,7 @@ function viewPin() {
   return `<div class="lock pinlock">
       <img class="lock-logo" src="icon-512.png" alt="">
       <h1>Gesperrt</h1>
-      <p>PIN eingeben, um das Klassenbuch zu öffnen.</p>
+      <p>PIN eingeben, um KeimBook zu öffnen.</p>
       <div class="pindots${pinMsg ? ' bad' : ''}" aria-label="${pinBuf.length} von ${PIN_LEN} Ziffern">${Array.from({ length: PIN_LEN }, (_, i) => `<i class="${i < pinBuf.length ? 'on' : ''}"></i>`).join('')}</div>
       <p class="err">${esc(wait > 0 ? `Zu viele Versuche – bitte ${wait} s warten.` : pinMsg)}</p>
       <div class="keypad">${['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', '⌫'].map(k => k ? `<button class="key${k === '⌫' ? ' del' : ''}" data-a="pinKey" data-v="${k}" aria-label="${k === '⌫' ? 'Löschen' : k}">${k === '⌫' ? ICON.left : k}</button>` : '<span></span>').join('')}</div>
@@ -388,7 +388,7 @@ function viewLock() {
   return `
     <div class="lock">
       <img class="lock-logo" src="icon-512.png" alt="">
-      <h1>Klassenbuch</h1>
+      <h1>KeimBook</h1>
       <p>Gib deinen persönlichen Lizenzcode ein, um die App freizuschalten.</p>
       <textarea id="lic" placeholder="Lizenzcode hier einfügen" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false"></textarea>
       <p class="err">${esc(lockMsg)}</p>
@@ -405,7 +405,7 @@ function setHeader({ title = '', back = null, backLabel = '', act = null } = {})
   if (back) { b.href = back; $('#backlabel').textContent = backLabel; }
   a.hidden = !act;
   if (act) { a.innerHTML = ICON[act.icon]; a.dataset.a = act.a; a.setAttribute('aria-label', act.label || ''); }
-  document.title = title && title !== 'Klassen' ? title + ' – Klassenbuch' : 'Klassenbuch';
+  document.title = title && title !== 'Klassen' ? title + ' – KeimBook' : 'KeimBook';
 }
 const main = $('#main');
 const onScroll = () => $('#top').classList.toggle('scrolled', main.scrollTop > 44);
@@ -1118,7 +1118,7 @@ function viewSettings() {
 
     <div class="section">Daten</div>
     <div class="card"><button class="lrow danger" data-a="wipe"><span class="licon">${ICON.trash}</span><span class="grow">Alle Daten löschen</span></button></div>
-    <p class="fine center">Klassenbuch · Version ${APP_VERSION}</p>`;
+    <p class="fine center">KeimBook · Version ${APP_VERSION}</p>`;
 }
 
 /* ---------- Erinnerung an die Datensicherung (zweimal pro Woche) ---------- */
@@ -1428,7 +1428,7 @@ function pdfKit() {
       });
       objs[catalog - 1] = `<< /Type /Catalog /Pages ${pagesId} 0 R >>`;
       objs[pagesId - 1] = `<< /Type /Pages /Kids [${kids.map(id => id + ' 0 R').join(' ')}] /Count ${kids.length} >>`;
-      const info = add(`<< /Title ${pdfStr(title)} /Producer (Klassenbuch) >>`);
+      const info = add(`<< /Title ${pdfStr(title)} /Producer (KeimBook) >>`);
       let out = '%PDF-1.4\n%\xE2\xE3\xCF\xD3\n';
       const offs = [];
       objs.forEach((o, i) => { offs.push(out.length); out += `${i + 1} 0 obj\n${o}\nendobj\n`; });
@@ -1487,7 +1487,7 @@ function classTrendsPDF(c, rows) {
   }
   const n = rows.length, up = rows.filter(r => r.tr.dir === 'up').length, down = rows.filter(r => r.tr.dir === 'down').length, risk = rows.filter(r => isRisk(r.st)).length;
   k.text(M, Math.min(y + 24, H - M - 30), `${n} Schüler:innen · ${up} verbessern sich · ${down} verschlechtern sich · ${risk} mit Gesamtnote über 4`, { size: 9, color: COL.ink2 });
-  return k.build('Trends ' + c.name, `Klassenbuch · ${c.name}`);
+  return k.build('Trends ' + c.name, `KeimBook · ${c.name}`);
 }
 
 /* ---------- Export einer einzelnen Kategorie ---------- */
@@ -1635,7 +1635,7 @@ function catPDF(c, keys) {
   if (multi) catOverview(kit, c, keys);
   keys.forEach((k, i) => { if (multi) kit.page(); catSection(kit, c, k, multi ? `KATEGORIE ${i + 1} VON ${keys.length}` : 'KATEGORIE'); });
   const name = multi ? 'Kategorien' : typeOf(c, keys[0]).label;
-  return kit.build(`${name} ${c.name}`, `Klassenbuch · ${c.name} · ${name}`);
+  return kit.build(`${name} ${c.name}`, `KeimBook · ${c.name} · ${name}`);
 }
 
 function studentTrendPDF(c, s) {
@@ -1725,7 +1725,7 @@ function studentTrendPDF(c, s) {
       y += 18;
     });
   }
-  return k.build(`Trend ${s.name}`, `Klassenbuch · ${c.name} · ${s.name}`);
+  return k.build(`Trend ${s.name}`, `KeimBook · ${c.name} · ${s.name}`);
 }
 
 function parseCSV(text) {
@@ -2382,7 +2382,7 @@ const actions = {
     const box = await Crypt.seal(key, TE.encode(JSON.stringify(data)));
     const out = { app: 'klassenbuch', format: 2, exportiert: new Date().toISOString(),
       enc: { alg: 'AES-256-GCM', kdf: 'PBKDF2-SHA-256', iter: k.iter, salt: toB64(k.salt), iv: toB64(box.iv), ct: toB64(box.ct) } };
-    if (!await saveFile(`Klassenbuch-Sicherung_${today()}.json`, 'application/json', JSON.stringify(out))) return;
+    if (!await saveFile(`KeimBook-Sicherung_${today()}.json`, 'application/json', JSON.stringify(out))) return;
     backup.last = Date.now(); backup.snooze = 0;
     await DB.set('backup', backup).catch(() => { });
     if (location.hash.startsWith('#/einstellungen')) render();
@@ -2393,7 +2393,7 @@ const actions = {
     const head = new Uint8Array(await f.slice(0, 4).arrayBuffer());
     if (head[0] !== 0x7B && !/\.json$/i.test(f.name)) return actions.importAny(f);
     let inc, j;
-    try { j = JSON.parse(await readText(f)); if (!j || j.app !== 'klassenbuch') throw 0; } catch { return toast('Das ist keine gültige Klassenbuch-Sicherung'); }
+    try { j = JSON.parse(await readText(f)); if (!j || j.app !== 'klassenbuch') throw 0; } catch { return toast('Das ist keine gültige KeimBook-Sicherung'); }
     if (j.enc) {
       const pw = await secretSheet({ title: 'Sicherung öffnen', text: 'Diese Sicherung ist verschlüsselt. Gib das Sicherungspasswort ein.', ok: 'Öffnen' });
       if (!pw) return;
@@ -2402,7 +2402,7 @@ const actions = {
         inc = JSON.parse(TD.decode(await Crypt.open(key, { iv: fromB64(j.enc.iv), ct: fromB64(j.enc.ct) })));
       } catch { return toast('Falsches Passwort'); }
     } else inc = j.data;
-    if (!inc || !Array.isArray(inc.classes) || !Array.isArray(inc.entries)) return toast('Das ist keine gültige Klassenbuch-Sicherung');
+    if (!inc || !Array.isArray(inc.classes) || !Array.isArray(inc.entries)) return toast('Das ist keine gültige KeimBook-Sicherung');
     const k = await modal({
       title: 'Sicherung importieren', text: `${plural(inc.classes.length, 'Klasse', 'Klassen')}, ${plural(inc.entries.length, 'Eintrag', 'Einträge')}`,
       options: [['merge', 'Ergänzen (vorhandene Daten behalten)'], ['replace', 'Alles ersetzen', true]]
