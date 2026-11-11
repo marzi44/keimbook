@@ -8,7 +8,7 @@ const PUBLIC_KEY = {
   x: 'kHkzCWyGjuxGxGf_3AMH2F_MKEWEjH1hfCnBf7K1Imo',
   y: 'Fv556fMFzralLJTUqYxNxI68b9Fd4ctkLzgn07BzKj0'
 };
-const APP_VERSION = '3.9';
+const APP_VERSION = '4.0';
 
 const TYPES = {
   ma: { label: 'Mitarbeit', long: 'Mitarbeit', icon: 'spark', vals: [['+', '+', 'g'], ['~', '~', 'm'], ['-', '−', 'b']] },
@@ -871,7 +871,7 @@ function viewSettings() {
       <button class="lrow" data-a="exportBackup"><span class="licon">${ICON.download}</span><span class="grow">Sicherung exportieren</span>${ICON.chev}</button>
       <button class="lrow" data-a="importBackup"><span class="licon">${ICON.upload}</span><span class="grow">Sicherung importieren</span>${ICON.chev}</button>
     </div>
-    <p class="fine">Alle Daten liegen nur auf diesem Gerät. Exportiere regelmäßig eine Sicherung, z. B. in die Dateien-App oder auf einen USB-Stick.</p>
+    <p class="fine">Letzte Sicherung: <b>${esc(backupWhen())}</b> · Erinnerung zweimal pro Woche<br>Alle Daten liegen nur auf diesem Gerät – speichere die Sicherung z. B. in der Dateien-App, in iCloud Drive oder auf einem USB-Stick.</p>
 
     <div class="section">Lizenz</div>
     <div class="card"><div class="lrow static"><span class="licon">${ICON.key}</span><span class="grow">${esc(license.info.n)}</span><span class="muted">${esc(exp)}</span></div></div>
@@ -883,6 +883,29 @@ function viewSettings() {
     <div class="card"><button class="lrow danger" data-a="wipe"><span class="licon">${ICON.trash}</span><span class="grow">Alle Daten löschen</span></button></div>
     <p class="fine center">Klassenbuch · Version ${APP_VERSION}</p>`;
 }
+
+/* ---------- Erinnerung an die Datensicherung (zweimal pro Woche) ---------- */
+const BACKUP_EVERY = 3.5 * 864e5, BACKUP_SNOOZE = 864e5;
+let backup = { last: 0, snooze: 0 }, backupAsking = false;
+const isoOf = ms => { const d = new Date(ms); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const backupWhen = () => backup.last ? relDay(isoOf(backup.last)) : 'noch nie';
+async function backupCheck() {
+  if (!license || backupAsking || $('#dlg').open || !data.entries.length) return;
+  const now = Date.now();
+  if (backup.last && now - backup.last < BACKUP_EVERY) return;
+  if (backup.snooze && now < backup.snooze) return;
+  backupAsking = true;
+  const ok = await modal({
+    title: 'Zeit für eine Sicherung',
+    text: `Letzte Sicherung: ${backupWhen()}\nAlle Einträge liegen nur auf diesem Gerät. Mit einer Sicherung geht nichts verloren – auch wenn das Handy kaputtgeht.`,
+    ok: 'Jetzt sichern', cancel: 'Später'
+  });
+  backupAsking = false;
+  if (ok) return actions.exportBackup();
+  backup.snooze = now + BACKUP_SNOOZE;
+  await DB.set('backup', backup).catch(() => { });
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') setTimeout(backupCheck, 800); });
 
 /* ---------- Sheets ---------- */
 function modal(o) {
@@ -1002,8 +1025,8 @@ async function saveFile(name, type, text) {
   if (isIOS && navigator.canShare) {
     const file = new File([blob], name, { type });
     if (navigator.canShare({ files: [file] })) {
-      try { await navigator.share({ files: [file] }); return; }
-      catch (e) { if (e.name === 'AbortError') return; }
+      try { await navigator.share({ files: [file] }); return true; }
+      catch (e) { if (e.name === 'AbortError') return false; }
     }
   }
   const url = URL.createObjectURL(blob);
@@ -1011,6 +1034,7 @@ async function saveFile(name, type, text) {
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 4000);
   toast('Gespeichert: ' + name);
+  return true;
 }
 const safeName = s => s.replace(/[^\wäöüÄÖÜß.-]+/g, '_');
 
@@ -2047,9 +2071,12 @@ const actions = {
         e.w ? fmtW(e.w) : '1', e.n || '']));
     saveFile(`Einträge_${safeName(c.name)}_${today()}.csv`, 'text/csv', toCSV(rows));
   },
-  exportBackup() {
+  async exportBackup() {
     const out = { app: 'klassenbuch', format: 1, exportiert: new Date().toISOString(), data };
-    saveFile(`Klassenbuch-Sicherung_${today()}.json`, 'application/json', JSON.stringify(out));
+    if (!await saveFile(`Klassenbuch-Sicherung_${today()}.json`, 'application/json', JSON.stringify(out))) return;
+    backup.last = Date.now(); backup.snooze = 0;
+    await DB.set('backup', backup).catch(() => { });
+    if (location.hash.startsWith('#/einstellungen')) render();
   },
   async importBackup(arg) {
     const f = arg instanceof File ? arg : await pickFile(); if (!f) return;
@@ -2126,7 +2153,9 @@ async function start() {
     if (!res.error) { license = res; await loadData(); }
     else lockMsg = res.error;
   }
+  backup = Object.assign({ last: 0, snooze: 0 }, await DB.get('backup').catch(() => null));
   render();
+  setTimeout(backupCheck, 1200);
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => { });
 }
 
