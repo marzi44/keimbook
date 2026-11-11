@@ -635,3 +635,24 @@ a.inl { color: inherit; text-decoration: underline; text-decoration-color: var(-
 .opt.ck { display: flex; align-items: center; gap: 12px; }
 .opt.ck .grow { flex: 1; min-width: 0; }
 .opt.ck.all { color: var(--accent); font-weight: 600; }
+
+/* ---------- Notenskalen: Prozent & eigene Stufen ---------- */
+.seg.four button { font-size: 14px; padding: 0 2px; }
+.limits, .levels { display: grid; gap: 8px; }
+.lim, .lvl { display: flex; align-items: center; gap: 10px; }
+.lim .ln { width: 64px; font-weight: 600; font-size: 15px; }
+.lim .la, .lvl .la { color: var(--ink-3); font-size: 14px; font-weight: 600; }
+.sheet .lim input { width: 84px; flex: none; text-align: right; padding: 10px 12px; }
+.sheet .lvl input { width: 74px; flex: none; text-align: center; font-weight: 700; padding: 10px 8px; }
+.sheet select {
+  flex: 1; min-width: 0; height: 44px; padding: 0 12px; border: 1px solid var(--line); border-radius: 14px;
+  background: var(--surface-2); color: var(--ink); font-size: 16px; font-family: inherit; appearance: none; -webkit-appearance: none;
+}
+.lvl-rm { width: 36px; height: 36px; flex: none; border: 0; border-radius: 50%; background: none; color: var(--ink-3); display: grid; place-items: center; }
+.lvl-rm:active { background: var(--fill); }
+.serr { margin: -4px 0 0; color: var(--neg); font-size: 14px; font-weight: 600; }
+.v.wide .digit { font-size: 14px; letter-spacing: -.02em; }
+.valbox.pct { width: 96px; }
+.scalebox { display: grid; gap: 12px; }
+.scalebox[hidden] { display: none; }
+.sheet .scalebox .stext { margin: 2px 0 0; font-size: 14px; }

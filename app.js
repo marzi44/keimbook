@@ -8,7 +8,7 @@ const PUBLIC_KEY = {
   x: 'kHkzCWyGjuxGxGf_3AMH2F_MKEWEjH1hfCnBf7K1Imo',
   y: 'Fv556fMFzralLJTUqYxNxI68b9Fd4ctkLzgn07BzKj0'
 };
-const APP_VERSION = '4.0';
+const APP_VERSION = '4.1';
 
 const TYPES = {
   ma: { label: 'Mitarbeit', long: 'Mitarbeit', icon: 'spark', vals: [['+', '+', 'g'], ['~', '~', 'm'], ['-', '−', 'b']] },
@@ -32,10 +32,37 @@ const SYM = {
 const glyph = (l, size = 17) => SYM[l]
   ? `<svg class="sym" viewBox="0 0 24 24" width="${size}" height="${size}" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">${SYM[l]}</svg>`
   : `<span class="digit">${l}</span>`;
-const valInfo = (t, v) => ((SCALABLE.includes(t) || !TYPES[t]) ? [...SCALES.grade, ...SCALES.pm] : TYPES[t].vals).find(x => x[0] === v) || [v, v, 'm'];
+// Wert → [Wert, Anzeige, Farbklasse]. Kennt Note 1–5, + ~ −, Prozent (%73) und eigene Stufen (o:id).
+const gcls = g => g == null ? 'm' : g < 2.5 ? 'g' : g <= 4 ? 'm' : 'b';
+function valInfo(c, t, v) {
+  v = String(v);
+  if (v[0] === '%') { const p = parseFloat(v.slice(1)); return [v, fmtVal(p) + ' %', gcls(pctGrade(c, t, p))]; }
+  if (v.startsWith('o:')) { const l = ownLevels(c, t).find(x => 'o:' + x.id === v); return l ? [v, l.l, gcls(l.g)] : [v, '?', 'm']; }
+  return ((SCALABLE.includes(t) || !TYPES[t]) ? [...SCALES.grade, ...SCALES.pm] : TYPES[t].vals).find(x => x[0] === v) || [v, v, 'm'];
+}
 
 /* ---------- Bewertung: Notenskala & Gewichtung (je Klasse) ---------- */
 const SCALES = { grade: grades(), pm: [['+', '+', 'g'], ['~', '~', 'm'], ['-', '−', 'b']] };
+const SCALE_NAMES = { grade: 'Note 1 – 5', pm: '+ ~ −', pct: 'Prozent', own: 'Eigene' };
+const PCT_DEFAULT = [88, 75, 63, 50]; // ab … % = Note 1, 2, 3, 4 – darunter 5
+const OWN_DEFAULT = [['++', 1], ['+', 2], ['o', 3], ['−', 4], ['−−', 5]];
+const pctLimits = (c, k) => (cfg(c).pct[k] || PCT_DEFAULT);
+function pctGrade(c, k, p) { if (p == null || isNaN(p)) return null; const L = pctLimits(c, k); for (let i = 0; i < 4; i++) if (p >= L[i]) return i + 1; return 5; }
+const ownLevels = (c, k) => cfg(c).own[k] || OWN_DEFAULT.map(([l, g], i) => ({ id: 'd' + i, l, g }));
+// Notenwert (1–5) eines Eintrags – egal mit welcher Skala er eingetragen wurde
+function gradeVal(c, e) {
+  const v = String(e.v);
+  if (v[0] === '%') return pctGrade(c, e.t, parseFloat(v.slice(1)));
+  if (v.startsWith('o:')) { const l = ownLevels(c, e.t).find(x => 'o:' + x.id === v); return l ? l.g : null; }
+  return NUM[v] ?? null;
+}
+function scaleDesc(c, k) {
+  const sc = scaleOf(c, k);
+  if (sc === 'pm') return '+ ~ −';
+  if (sc === 'pct') { const L = pctLimits(c, k); return `Prozent 0–100 · Note 1 ab ${L[0]} %, 2 ab ${L[1]} %, 3 ab ${L[2]} %, 4 ab ${L[3]} %`; }
+  if (sc === 'own') return 'Eigene Skala: ' + ownLevels(c, k).map(x => `${x.l} = ${fmtVal(x.g)}`).join(', ');
+  return 'Note 1–5';
+}
 const SCALABLE = ['ma', 'mu', 'sw'];
 const BUILTIN = ['an', 'ma', 'mu', 'sw', 'hu', 'vh'];
 const DEFAULT_CFG = { scale: { ma: 'pm', mu: 'grade', sw: 'grade' }, weight: { ma: 30, mu: 30, sw: 40, hu: 0 }, cats: { hidden: [], custom: [] } };
@@ -52,6 +79,8 @@ function cfg(c) {
   c.cfg.scale = Object.assign({}, DEFAULT_CFG.scale, c.cfg.scale);
   c.cfg.weight = Object.assign({}, DEFAULT_CFG.weight, c.cfg.weight);
   c.cfg.cats = Object.assign({ hidden: [], custom: [], labels: {} }, c.cfg.cats);
+  c.cfg.pct = c.cfg.pct || {};
+  c.cfg.own = c.cfg.own || {};
   return c.cfg;
 }
 const customOf = (c, k) => cfg(c).cats.custom.find(x => x.id === k);
@@ -73,7 +102,7 @@ const visKeys = c => catKeys(c).filter(k => !cfg(c).cats.hidden.includes(k));
 const weighable = (c, k) => ['note', 'hu'].includes(kindOf(c, k));
 const shortOf = (c, k) => (c && cfg(c).cats.labels[k]) || SHORT[k] || (typeOf(c, k) || { label: k }).label;
 const scaleOf = (c, t) => kindOf(c, t) === 'note' ? (cfg(c).scale[t] || 'grade') : null;
-const valsFor = (c, t) => kindOf(c, t) === 'note' ? SCALES[scaleOf(c, t)] : TYPES[t].vals;
+const valsFor = (c, t) => kindOf(c, t) !== 'note' ? TYPES[t].vals : scaleOf(c, t) === 'own' ? ownLevels(c, t).map(x => ['o:' + x.id, x.l, gcls(x.g)]) : SCALES[scaleOf(c, t)] || SCALES.grade;
 const toPm = v => ({ '1': '+', '2': '+', '3': '~', '4': '-', '5': '-' }[v] || v);
 const fmtW = w => w === 0.5 ? '½' : String(w).replace('.', ',');
 const round3 = n => Math.round(n * 1000) / 1000;
@@ -403,6 +432,11 @@ function rowHTML(c, s) {
   if (kind === 'vh') {
     if (todays.length) meta = `<span class="snote vmnote">${ICON.frown.replace('width="18" height="18"', 'width="12" height="12"')}${esc(todays.map(e => e.n).join(' · '))}</span>`;
     btns = `<button class="vmbtn${todays.length ? ' has' : ''}" data-a="mark" data-s="${s.id}" data-v="x" aria-label="${esc('Vermerk für ' + s.name)}">${ICON.plus}Vermerk${todays.length > 1 ? ` <b>${todays.length}</b>` : ''}</button>`;
+  } else if (scaleOf(c, type) === 'pct') {
+    const cur = todays[0], isP = cur && String(cur.v)[0] === '%';
+    if (cur && cur.n) meta = `<span class="snote">${ICON.speech.replace('width="18" height="18"', 'width="12" height="12"')}${esc(cur.n)}</span>`;
+    btns = `<label class="valbox num pct"><input class="valin" data-s="${s.id}" inputmode="decimal" enterkeyhint="next" autocomplete="off"
+      value="${isP ? esc(fmtVal(cur.v.slice(1))) : ''}" placeholder="–" aria-label="${esc(t.label + ' ' + s.name + ' in Prozent')}"><span class="unit">%</span></label>`;
   } else if (kind === 'num' || kind === 'text') {
     const cur = todays[0];
     btns = `<label class="valbox ${kind}"><input class="valin" data-s="${s.id}" ${kind === 'num' ? 'inputmode="decimal"' : 'autocapitalize="sentences"'} enterkeyhint="next" autocomplete="off"
@@ -411,10 +445,10 @@ function rowHTML(c, s) {
   } else {
     const cur = todays[0];
     if (cur && cur.n) meta = `<span class="snote">${ICON.speech.replace('width="18" height="18"', 'width="12" height="12"')}${esc(cur.n)}</span>`;
-    const curV = cur ? (scaleOf(c, type) === 'pm' ? toPm(cur.v) : ({ '+': '1', '~': '3', '-': '5' }[cur.v] || cur.v)) : null;
+    const sc = scaleOf(c, type), curV = cur ? (sc === 'pm' ? toPm(cur.v) : sc === 'grade' ? ({ '+': '1', '~': '3', '-': '5' }[cur.v] || cur.v) : cur.v) : null;
     const vals = valsFor(c, type);
     btns = vals.map(([v, label, vc]) =>
-      `<button class="v ${vc} ${curV === v ? 'on' : ''}" data-a="mark" data-s="${s.id}" data-v="${v}" aria-label="${esc(t.label + ' ' + label)}">${glyph(label)}</button>`).join('')
+      `<button class="v ${vc} ${curV === v ? 'on' : ''}${label.length > 1 && !SYM[label] ? ' wide' : ''}" data-a="mark" data-s="${s.id}" data-v="${v}" aria-label="${esc(t.label + ' ' + label)}">${glyph(label)}</button>`).join('')
 ;
     cls = vals.length > 3 ? ' five' : '';
   }
@@ -424,7 +458,7 @@ function rowHTML(c, s) {
 }
 
 function stats(c, sid) {
-  const st = { n: 0, avg: {}, cnt: {}, list: {}, nums: {}, texts: {}, hu: { y: 0, n: 0 }, vh: { n: 0, last: '', lastD: '' }, abs: { A: 0, AN: 0 }, absDays: {}, total: null };
+  const st = { n: 0, avg: {}, pct: {}, cnt: {}, list: {}, nums: {}, texts: {}, hu: { y: 0, n: 0 }, vh: { n: 0, last: '', lastD: '' }, abs: { A: 0, AN: 0 }, absDays: {}, total: null };
   const acc = {}, vis = visKeys(c);
   for (const k of catKeys(c)) { acc[k] = { s: 0, w: 0 }; st.cnt[k] = { '+': 0, '~': 0, '-': 0 }; st.list[k] = []; st.nums[k] = { n: 0, best: null, last: null, lastD: '' }; st.texts[k] = { n: 0, last: '', lastD: '' }; }
   const es = entriesOf(c.id, sid).sort((a, b) => a.d.localeCompare(b.d));
@@ -441,13 +475,14 @@ function stats(c, sid) {
     }
     if (kind === 'text') { const x = st.texts[e.t]; x.n++; x.last = e.v; x.lastD = e.d; continue; }
     if (e.t === 'vh') { st.vh.n++; st.vh.last = e.n || ''; st.vh.lastD = e.d; continue; }
-    const w = e.w || 1, num = NUM[e.v];
+    const w = e.w || 1, num = gradeVal(c, e);
     if (num != null) { acc[e.t].s += num * w; acc[e.t].w += w; }
+    if (String(e.v)[0] === '%') { const p = st.pct[e.t] || (st.pct[e.t] = { s: 0, w: 0 }); p.s += parseFloat(e.v.slice(1)) * w; p.w += w; }
     if (isAbs(e.v)) { if (st.absDays[e.d] !== 'A') st.absDays[e.d] = e.v === 'AN' ? 'AN' : 'A'; continue; }
     if (e.t === 'hu') st.hu[e.v] = (st.hu[e.v] || 0) + 1;
     else {
-      st.cnt[e.t][toPm(e.v)]++;
-      const l = valInfo(e.t, e.v)[1];
+      const pm = toPm(e.v); if (pm in st.cnt[e.t]) st.cnt[e.t][pm]++;
+      const l = valInfo(c, e.t, e.v)[1];
       st.list[e.t].push(w === 1 ? l : `${l} (×${fmtW(w)})`);
     }
   }
@@ -458,6 +493,7 @@ function stats(c, sid) {
     if (vis.includes(k) && weighable(c, k) && (wt[k] || 0) > 0 && st.avg[k] != null) { S += wt[k] * st.avg[k]; W += wt[k]; }
   }
   st.total = W ? S / W : null;
+  for (const k in st.pct) st.pct[k] = st.pct[k].w ? st.pct[k].s / st.pct[k].w : null;
   Object.values(st.absDays).forEach(v => st.abs[v]++);
   return st;
 }
@@ -475,7 +511,7 @@ function seriesOf(c, sid) {
   const acc = {}; keys.forEach(k => { acc[k] = { s: 0, w: 0 }; });
   const out = [];
   es.forEach((e, i) => {
-    const num = NUM[e.v], w = e.w || 1;
+    const num = gradeVal(c, e), w = e.w || 1;
     if (num != null) { acc[e.t].s += num * w; acc[e.t].w += w; }
     if (i === es.length - 1 || es[i + 1].d !== e.d) {
       let S = 0, W = 0;
@@ -571,6 +607,7 @@ function metricHTML(c, st, k) {
   const kind = kindOf(c, k);
   if (kind === 'num') { const x = st.nums[k]; return x.best == null ? dash : esc(withUnit(x.best, typeOf(c, k).unit)); }
   if (kind === 'text') { const x = st.texts[k]; return x.n ? x.n + '×' : dash; }
+  if (scaleOf(c, k) === 'pct' && st.pct[k] != null) return `<span class="${gradeCls(st.avg[k])}">${Math.round(st.pct[k])} %</span>`;
   if (scaleOf(c, k) === 'pm') { const x = st.cnt[k]; return `<span class="g-t">+${x['+']}</span><span class="m-t">~${x['~']}</span><span class="b-t">−${x['-']}</span>`; }
   return st.avg[k] == null ? dash : `<span class="${gradeCls(st.avg[k])}">${fmtNum(st.avg[k])}</span>`;
 }
@@ -646,8 +683,7 @@ function viewRating(c) {
   const wKeys = visKeys(c).filter(k => weighable(c, k));
   const sum = wKeys.reduce((a, k) => a + (cf.weight[k] || 0), 0);
   const scaleRows = noteKeys.map(k => { const t = typeOf(c, k), sc = scaleOf(c, k);
-    return `<div class="lrow static"><span class="licon">${ICON[t.icon]}</span><span class="grow">${esc(t.label)}</span>
-      <div class="mini-seg"><button class="${sc === 'grade' ? 'on' : ''}" data-a="setScale" data-t="${k}" data-v="grade">1 – 5</button><button class="${sc === 'pm' ? 'on' : ''}" data-a="setScale" data-t="${k}" data-v="pm" aria-label="Plus, Welle, Minus"><span class="symrow">${glyph('+', 14)}${glyph('~', 14)}${glyph('−', 14)}</span></button></div></div>`; }).join('');
+    return `<button class="lrow" data-a="scaleEdit" data-t="${k}"><span class="licon">${ICON[t.icon]}</span><span class="grow">${esc(t.label)}<span class="muted block">${esc(scaleDesc(c, k))}</span></span>${ICON.chev}</button>`; }).join('');
   const wRows = wKeys.map(k => {
     const t = typeOf(c, k), w = cf.weight[k] || 0;
     return `<div class="lrow static"><span class="licon">${ICON[t.icon]}</span><span class="grow">${esc(t.label)}</span>
@@ -659,11 +695,11 @@ function viewRating(c) {
   return `<div class="hero"><div class="eyebrow">${esc(c.name)}</div><h1>Bewertung</h1></div>
     ${noteKeys.length ? `<div class="section">Notenskala</div>
     <div class="card">${scaleRows}</div>
-    <p class="fine">Bewerte mit Noten von 1 bis 5 oder mit + ~ −. Bereits eingetragene Werte bleiben erhalten.</p>` : ''}
+    <p class="fine">Tippe auf eine Kategorie und wähle Note 1–5, + ~ −, Prozent (0–100 mit eigenen Notengrenzen) oder eine eigene Skala. Bereits eingetragene Werte bleiben erhalten und zählen weiter mit ihrem Notenwert.</p>` : ''}
     <div class="section">Anteil an der Gesamtnote</div>
     <div class="card">${wRows || '<div class="nothing">Keine benotbare Kategorie sichtbar</div>'}</div>
     <p class="fine">${sumLine}</p>
-    <p class="fine">Umrechnung: + = 1, ~ = 3, − = 5 · Hausübung gebracht = 1, nicht gebracht = 5 · Verhaltens-Vermerke, Messwerte und Notizen zählen nicht zur Gesamtnote.<br>Einzelne Noten kannst du bei der jeweiligen Schülerin oder dem jeweiligen Schüler stärker oder schwächer zählen lassen: einfach auf die Note tippen.</p>
+    <p class="fine">So entsteht die Gesamtnote: Je Kategorie wird ein Notenschnitt gebildet und mit ihrem Anteil gewichtet. Kategorien mit 0 % zählen nicht.<br>Umrechnung: + = 1, ~ = 3, − = 5 · Prozent nach deinen Notengrenzen · eigene Stufen mit dem Wert, den du festlegst · Hausübung gebracht = 1, nicht gebracht = 5 · Verhaltens-Vermerke, Messwerte und Notizen zählen nicht zur Gesamtnote.<br>Einzelne Noten kannst du bei der jeweiligen Schülerin oder dem jeweiligen Schüler stärker oder schwächer zählen lassen: einfach auf die Note tippen.</p>
     <div class="stack">
       <a class="btn secondary block" href="#/kat/${c.id}">${ICON.pen} Kategorien bearbeiten</a>
       ${data.classes.length > 1 ? `<button class="btn secondary block" data-a="cfgAll">Für alle Klassen übernehmen</button>` : ''}
@@ -679,7 +715,7 @@ function viewCats(c) {
     if (k === 'hu') return 'gebracht / nicht gebracht';
     if (k === 'vh') return 'Vermerk mit Anmerkung · zählt nicht zur Note';
     if (k === 'an') return 'anwesend / abwesend · zählt nicht zur Note';
-    if (kind === 'note') return scaleOf(c, k) === 'pm' ? '+ ~ −' : 'Note 1–5';
+    if (kind === 'note') return scaleDesc(c, k);
     if (kind === 'num') return 'Messwert' + (t.unit ? ' in ' + t.unit : '') + (t.high ? ' · höher ist besser' : ' · niedriger ist besser');
     return 'Notiz';
   };
@@ -704,11 +740,76 @@ function viewCats(c) {
     <p class="fine">Beispiele: „Weitsprung“ als Messwert in m, „60-m-Lauf“ in s (niedriger ist besser), „Referat“ als Note, „Beobachtung“ als Notiz.</p>`;
 }
 
+/* ---------- Notenskala-Editor (Prozent-Grenzen, eigene Stufen) ---------- */
+const scaleState = (c, k) => ({ scale: (c && k && scaleOf(c, k)) || 'grade', pct: [...(c && k ? pctLimits(c, k) : PCT_DEFAULT)],
+  own: (c && k ? ownLevels(c, k) : OWN_DEFAULT.map(([l, g], i) => ({ id: 'd' + i, l, g }))).map(x => ({ ...x })) });
+function scaleCheck(st) {
+  if (st.scale === 'pct') {
+    const L = st.pct;
+    if (L.some(x => isNaN(x) || x < 0 || x > 100)) return 'Grenzen bitte zwischen 0 und 100 %.';
+    for (let i = 1; i < 4; i++) if (!(L[i] < L[i - 1])) return `Note ${i + 1} muss eine niedrigere Grenze haben als Note ${i}.`;
+  }
+  if (st.scale === 'own') {
+    if (st.own.length < 2) return 'Mindestens zwei Stufen.';
+    if (st.own.some(x => !x.l)) return 'Jede Stufe braucht ein Zeichen.';
+    if (new Set(st.own.map(x => x.l)).size !== st.own.length) return 'Jedes Zeichen darf nur einmal vorkommen.';
+  }
+  return null;
+}
+function scaleHTML(st) {
+  const seg = `<div class="seg kindseg four">${Object.entries(SCALE_NAMES).map(([k, l]) =>
+    `<button type="button" data-scale="${k}" class="${st.scale === k ? 'on' : ''}"${k === 'pm' ? ' aria-label="Plus, Welle, Minus"' : ''}>${k === 'pm' ? `<span class="symrow">${glyph('+', 13)}${glyph('~', 13)}${glyph('−', 13)}</span>` : k === 'grade' ? '1 – 5' : l}</button>`).join('')}</div>`;
+  let extra = '';
+  if (st.scale === 'pct') extra = `<p class="stext">Du trägst 0 bis 100 % ein. Ab wie viel Prozent gibt es welche Note?</p>
+    <div class="limits">${[0, 1, 2, 3].map(i => `<label class="lim"><span class="ln">Note ${i + 1}</span><span class="la">ab</span><input data-lim="${i}" inputmode="decimal" value="${isNaN(st.pct[i]) ? '' : fmtVal(st.pct[i])}" autocomplete="off" aria-label="Note ${i + 1} ab Prozent"><span class="la">%</span></label>`).join('')}
+      <div class="lim"><span class="ln">Note 5</span><span class="la">darunter</span></div></div>`;
+  if (st.scale === 'own') extra = `<p class="stext">Bis zu 5 Stufen: ein kurzes Zeichen (z. B. ++, A, ★) und welche Note es in der Gesamtnote bedeutet.</p>
+    <div class="levels">${st.own.map((x, i) => `<div class="lvl"><input data-ol="${i}" value="${esc(x.l)}" maxlength="3" autocomplete="off" aria-label="Zeichen für Stufe ${i + 1}">
+      <span class="la">=</span><select data-og="${i}" aria-label="Notenwert für Stufe ${i + 1}">${[1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5].map(g => `<option value="${g}"${g === x.g ? ' selected' : ''}>Note ${fmtVal(g)}</option>`).join('')}</select>
+      ${st.own.length > 2 ? `<button type="button" class="lvl-rm" data-orm="${i}" aria-label="Stufe ${i + 1} entfernen">${ICON.close}</button>` : '<span class="lvl-rm"></span>'}</div>`).join('')}</div>
+    ${st.own.length < 5 ? `<button type="button" class="link small left" data-oadd="1">${ICON.plus} Stufe hinzufügen</button>` : ''}`;
+  return seg + extra + '<p class="serr" hidden></p>';
+}
+function bindScale(box, st, active = () => true) {
+  const ok = box.closest('form').querySelector('.btns .primary');
+  const check = () => {
+    const err = active() ? scaleCheck(st) : null, el = box.querySelector('.serr');
+    if (el) { el.hidden = !err; el.textContent = err || ''; }
+    if (ok) ok.disabled = !!err;
+  };
+  const paint = () => { box.innerHTML = scaleHTML(st); check(); };
+  box.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.scale) st.scale = b.dataset.scale;
+    else if (b.dataset.orm) st.own.splice(+b.dataset.orm, 1);
+    else if (b.dataset.oadd) st.own.push({ id: uid(), l: '', g: 3 });
+    else return;
+    paint();
+    if (b.dataset.oadd) box.querySelector(`[data-ol="${st.own.length - 1}"]`).focus();
+  });
+  const onInput = e => {
+    const t = e.target;
+    if (t.dataset.lim != null) st.pct[+t.dataset.lim] = t.value.trim() === '' ? NaN : parseFloat(t.value.replace(',', '.'));
+    else if (t.dataset.ol != null) st.own[+t.dataset.ol].l = t.value.trim();
+    else if (t.dataset.og != null) st.own[+t.dataset.og].g = +t.value;
+    check();
+  };
+  box.addEventListener('input', onInput); box.addEventListener('change', onInput);
+  paint();
+  return check;
+}
+function applyScale(c, k, st) {
+  const cf = cfg(c);
+  cf.scale[k] = st.scale;
+  if (st.scale === 'pct') cf.pct[k] = st.pct.map(Number);
+  if (st.scale === 'own') cf.own[k] = st.own.map(x => ({ id: x.id, l: x.l, g: x.g }));
+}
+
 function catEditSheet(c, k) {
   const t = typeOf(c, k), kind = kindOf(c, k), x = customOf(c, k);
-  let scale = scaleOf(c, k), high = t.high !== false;
+  let high = t.high !== false;
+  const sst = kind === 'note' ? scaleState(c, k) : null;
   const opts = () => `
-    ${kind === 'note' ? `<div class="seg kindseg"><button type="button" data-scale="grade" class="${scale === 'grade' ? 'on' : ''}">Note 1 – 5</button><button type="button" data-scale="pm" class="${scale === 'pm' ? 'on' : ''}">+ ~ −</button></div>` : ''}
     ${kind === 'num' ? `<div class="seg kindseg"><button type="button" data-high="1" class="${high ? 'on' : ''}">Höher ist besser</button><button type="button" data-high="0" class="${high ? '' : 'on'}">Niedriger ist besser</button></div>` : ''}`;
   return modal({
     title: 'Kategorie bearbeiten', ok: 'Speichern',
@@ -716,44 +817,45 @@ function catEditSheet(c, k) {
     body: `<input name="label" value="${esc(t.label)}" placeholder="${esc(t.custom ? 'Name' : TYPES[k].label)}" autocomplete="off" autocapitalize="sentences">
       ${kind === 'num' ? `<input name="unit" value="${esc(t.unit || '')}" placeholder="Einheit, z. B. m, s, cm, Punkte" autocomplete="off">` : ''}
       <div class="kindbox">${opts()}</div>
+      ${kind === 'note' ? '<div class="scalebox"></div>' : ''}
       ${!t.custom && t.renamed ? `<button type="button" class="link small left" data-reset="1">Ursprünglichen Namen „${esc(TYPES[k].label)}“ wiederherstellen</button>` : ''}`,
     mount(d) {
       const box = d.querySelector('.kindbox');
       box.addEventListener('click', e => {
         const b = e.target.closest('button'); if (!b) return;
-        if (b.dataset.scale) scale = b.dataset.scale;
         if (b.dataset.high) high = b.dataset.high === '1';
         box.innerHTML = opts();
       });
+      if (sst) bindScale(d.querySelector('.scalebox'), sst);
       const r = d.querySelector('[data-reset]');
       if (r) r.addEventListener('click', () => { d.querySelector('[name=label]').value = TYPES[k].label; r.remove(); });
     },
     collect(d) {
       const u = d.querySelector('[name=unit]');
-      return { label: d.querySelector('[name=label]').value.trim(), scale, high, unit: u ? u.value.trim() : undefined };
+      return { label: d.querySelector('[name=label]').value.trim(), sc: sst, high, unit: u ? u.value.trim() : undefined };
     }
   });
 }
 
 function catSheet() {
-  let kind = 'num', scale = 'grade', high = true;
+  let kind = 'num', high = true;
+  const sst = scaleState();
   const segs = () => `
     <div class="seg kindseg">${Object.entries(KINDS).map(([k, x]) => `<button type="button" data-kind="${k}" class="${kind === k ? 'on' : ''}">${x.label}</button>`).join('')}</div>
     <p class="stext">${KINDS[kind].desc}</p>
     ${kind === 'num' ? `<input name="unit" placeholder="Einheit, z. B. m, s, cm, Punkte" autocomplete="off">
-      <div class="seg kindseg"><button type="button" data-high="1" class="${high ? 'on' : ''}">Höher ist besser</button><button type="button" data-high="0" class="${high ? '' : 'on'}">Niedriger ist besser</button></div>` : ''}
-    ${kind === 'note' ? `<div class="seg kindseg"><button type="button" data-scale="grade" class="${scale === 'grade' ? 'on' : ''}">Note 1 – 5</button><button type="button" data-scale="pm" class="${scale === 'pm' ? 'on' : ''}">+ ~ −</button></div>` : ''}`;
+      <div class="seg kindseg"><button type="button" data-high="1" class="${high ? 'on' : ''}">Höher ist besser</button><button type="button" data-high="0" class="${high ? '' : 'on'}">Niedriger ist besser</button></div>` : ''}`;
   return modal({
     title: 'Eigene Kategorie', ok: 'Anlegen',
-    body: `<input name="label" placeholder="Name, z. B. Weitsprung" autocomplete="off" autocapitalize="sentences"><div class="kindbox"></div>`,
+    body: `<input name="label" placeholder="Name, z. B. Weitsprung" autocomplete="off" autocapitalize="sentences"><div class="kindbox"></div><div class="scalebox"></div>`,
     mount(d) {
-      const box = d.querySelector('.kindbox');
-      const paint = () => { const u = box.querySelector('[name=unit]'); const uv = u ? u.value : ''; box.innerHTML = segs(); const nu = box.querySelector('[name=unit]'); if (nu) nu.value = uv; };
+      const box = d.querySelector('.kindbox'), sb = d.querySelector('.scalebox');
+      const check = bindScale(sb, sst, () => kind === 'note');
+      const paint = () => { const u = box.querySelector('[name=unit]'); const uv = u ? u.value : ''; box.innerHTML = segs(); const nu = box.querySelector('[name=unit]'); if (nu) nu.value = uv; sb.hidden = kind !== 'note'; check(); };
       box.addEventListener('click', e => {
         const b = e.target.closest('button'); if (!b) return;
         if (b.dataset.kind) kind = b.dataset.kind;
         if (b.dataset.high) high = b.dataset.high === '1';
-        if (b.dataset.scale) scale = b.dataset.scale;
         paint();
       });
       paint();
@@ -761,7 +863,7 @@ function catSheet() {
     },
     collect(d) {
       const u = d.querySelector('[name=unit]');
-      return { label: d.querySelector('[name=label]').value.trim(), kind, scale, high, unit: u ? u.value.trim() : '' };
+      return { label: d.querySelector('[name=label]').value.trim(), kind, sc: sst, high, unit: u ? u.value.trim() : '' };
     }
   });
 }
@@ -792,6 +894,9 @@ function viewStudent(c, sid) {
     } else if (k === 'vh') {
       val = st.vh.n ? `<span class="b-t">${st.vh.n}</span>` : '0';
       sub = st.vh.n ? `${st.vh.n === 1 ? 'Vermerk' : 'Vermerke'} · zuletzt ${relDay(st.vh.lastD)}` : 'keine Vermerke';
+    } else if (sc === 'pct' && st.pct[k] != null) {
+      val = `<span class="${gradeCls(a)}">${Math.round(st.pct[k])} %</span>`;
+      sub = `entspricht Ø ${fmtNum(a)} · ${plural(st.list[k].length, 'Eintrag', 'Einträge')}`;
     } else if (sc === 'pm') {
       const x = st.cnt[k];
       val = `<span class="g-t">+${x['+']}</span><span class="m-t">~${x['~']}</span><span class="b-t">−${x['-']}</span>`;
@@ -800,7 +905,7 @@ function viewStudent(c, sid) {
       val = a == null ? '–' : `<span class="${gradeCls(a)}">${fmtNum(a)}</span>`;
       sub = st.list[k].length ? 'Noten: ' + st.list[k].join(', ') : 'noch keine';
     }
-    return `<div class="tile"><div class="k">${esc(t.label)}${sc === 'grade' ? ' Ø' : ''}</div><div class="val">${val}</div><div class="sub">${esc(sub)}</div></div>`;
+    return `<div class="tile"><div class="k">${esc(t.label)}${sc && sc !== 'pm' ? ' Ø' : ''}</div><div class="val">${val}</div><div class="sub">${esc(sub)}</div></div>`;
   };
   const tiles = `<div class="tiles">
     <a class="tile total" href="#/b/${c.id}"><div class="k">Gesamtnote</div><div class="val">${st.total == null ? '–' : fmtNum(st.total)}</div><div class="sub">${esc(weightSummary(c))}</div></a>
@@ -818,7 +923,7 @@ function viewStudent(c, sid) {
     es.forEach(e => { if (!byDay.has(e.d)) byDay.set(e.d, []); byDay.get(e.d).push(e); });
     for (const [d, items] of byDay) {
       list += `<div class="dayh">${esc(dayWord(d) === 'Heute' ? 'Heute' : fmtDayHead(d))}</div><div class="card">${items.map(e => {
-        const [, label, cls0] = valInfo(e.t, e.v);
+        const [, label, cls0] = valInfo(c, e.t, e.v);
         const t = typeOf(c, e.t), kind = kindOf(c, e.t);
         const cls = kind === 'num' || kind === 'text' ? 'n' : cls0;
         const title = e.t === 'vh' ? t.label + ': Vermerk' : t.long;
@@ -1052,7 +1157,7 @@ function entryValue(c, e) {
   if (e.t === 'vh') return 'Vermerk';
   if (kind === 'num') return withUnit(e.v, t.unit);
   if (kind === 'text') return e.v;
-  return valInfo(e.t, e.v)[1].replace('−', '-');
+  return valInfo(c, e.t, e.v)[1].replace('−', '-');
 }
 
 /* ---------- Excel (.xlsx) – selbst erzeugt, ohne Bibliothek ---------- */
@@ -1266,8 +1371,12 @@ function catSummary(c, k, es) {
     return [['Bestwert' + (t.unit ? ` (${t.unit})` : ''), best == null ? null : round3(best)], ['zuletzt', v.length ? round3(v[v.length - 1]) : null], ['Messungen', v.length]];
   }
   if (kind === 'text') return [['Notizen', es.length], ['zuletzt', es.length ? es[es.length - 1].v : '']];
-  const g = es.filter(e => !isAbs(e.v) && NUM[e.v] != null);
-  let S = 0, W = 0; g.forEach(e => { const w = e.w || 1; S += NUM[e.v] * w; W += w; });
+  const g = es.filter(e => !isAbs(e.v) && gradeVal(c, e) != null);
+  let S = 0, W = 0; g.forEach(e => { const w = e.w || 1; S += gradeVal(c, e) * w; W += w; });
+  if (scaleOf(c, k) === 'pct') {
+    const pe = g.filter(e => String(e.v)[0] === '%'); let P = 0, PW = 0; pe.forEach(e => { const w = e.w || 1; P += parseFloat(e.v.slice(1)) * w; PW += w; });
+    return [['Ø %', PW ? Math.round(P / PW * 10) / 10 : null], ['Ø', W ? S / W : null], ['Einträge', g.length]];
+  }
   return [['Ø', W ? S / W : null], ['Einträge', g.length]];
 }
 function catData(c, k) {
@@ -1280,7 +1389,7 @@ function catData(c, k) {
 }
 const catVal = (c, e) => e.t === 'vh' ? e.n || 'Vermerk' : e.t === 'an' ? (e.v === 'AN' ? 'anwesend' : 'abwesend') : entryValue(c, e);
 const dayCell = (c, es, d) => { const l = es.filter(x => x.d === d); return !l.length ? '' : l[0].t === 'vh' ? l.map(x => x.n || 'Vermerk').join(' · ') : cellVal(c, l[0]); };
-const cellVal = (c, e) => /^[1-5]$/.test(e.v) ? +e.v : kindOf(c, e.t) === 'num' && !isNaN(parseFloat(e.v)) ? round3(parseFloat(e.v)) : catVal(c, e);
+const cellVal = (c, e) => /^[1-5]$/.test(e.v) ? +e.v : String(e.v)[0] === '%' ? parseFloat(e.v.slice(1)) : kindOf(c, e.t) === 'num' && !isNaN(parseFloat(e.v)) ? round3(parseFloat(e.v)) : catVal(c, e);
 function catXLSX(c, keys) {
   keys = [].concat(keys);
   if (keys.length === 1) return catXLSX1(c, keys[0]);
@@ -1316,7 +1425,7 @@ function catSection(kit, c, k, eyebrow) {
   const n = rows.reduce((a, r) => a + r.es.length, 0);
   const span = dates.length ? `${fmtDay(dates[0])} bis ${fmtDay(dates[dates.length - 1])}` : 'noch keine Einträge';
   const desc = k === 'an' ? 'anwesend / abwesend' : k === 'hu' ? 'gebracht / nicht gebracht' : k === 'vh' ? 'Vermerke bei schlechtem Verhalten'
-    : kind === 'num' ? `Messwert${t.unit ? ' in ' + t.unit : ''}, ${t.high ? 'höher' : 'niedriger'} ist besser` : kind === 'text' ? 'Notizen' : scaleOf(c, k) === 'pm' ? 'Bewertung + ~ −' : 'Noten 1 bis 5';
+    : kind === 'num' ? `Messwert${t.unit ? ' in ' + t.unit : ''}, ${t.high ? 'höher' : 'niedriger'} ist besser` : kind === 'text' ? 'Notizen' : scaleDesc(c, k);
   const X = { name: M, sum: M + 150, list: M + 262 }, LW = W - M - X.list - 8, FS = 8.5, LH = 11;
   const head = first => {
     let y = first ? pdfHead(kit, eyebrow, t.label, [`${c.name} · ${desc}`, `${plural(n, 'Eintrag', 'Einträge')} · ${span} · Stand ${fmtDayLong(today())}`]) : M + 6;
@@ -1327,7 +1436,7 @@ function catSection(kit, c, k, eyebrow) {
   };
   const sumText = sum => {
     const l = sum.filter(x => x[1] !== null && x[1] !== '' && !(x[0] === 'zuletzt' && (kind === 'text' || k === 'vh')) && !(k === 'vh' && x[1] === 0))
-      .map(([l, v]) => l === 'Ø' ? `Ø ${fmtNum(v)}` : l.startsWith('Bestwert') ? `Bestwert ${withUnit(v, t.unit)}` : l === 'zuletzt' ? `zuletzt ${withUnit(v, t.unit)}` : l === 'Vermerke' ? plural(v, 'Vermerk', 'Vermerke') : `${v} ${l}`);
+      .map(([l, v]) => l === 'Ø' ? `Ø ${fmtNum(v)}` : l === 'Ø %' ? `Ø ${fmtVal(v)} %` : l.startsWith('Bestwert') ? `Bestwert ${withUnit(v, t.unit)}` : l === 'zuletzt' ? `zuletzt ${withUnit(v, t.unit)}` : l === 'Vermerke' ? plural(v, 'Vermerk', 'Vermerke') : `${v} ${l}`);
     return l.length ? l : ['–'];
   };
   let y = head(true), idx = 0;
@@ -1356,6 +1465,7 @@ function catShort(c, k, es) {
   if (k === 'vh') return [plural(es.length, 'Vermerk', 'Vermerke'), null, 'neg'];
   if (kind === 'num') return [sum[0][1] == null ? '–' : withUnit(sum[0][1], t.unit), null];
   if (kind === 'text') return [plural(es.length, 'Notiz', 'Notizen'), null];
+  if (sum[0][0] === 'Ø %') return sum[1][1] == null ? ['–', null] : sum[0][1] == null ? ['Ø ' + fmtNum(sum[1][1]), sum[1][1]] : [`${Math.round(sum[0][1])} %`, sum[1][1]];
   return sum[0][1] == null ? ['–', null] : ['Ø ' + fmtNum(sum[0][1]), sum[0][1]];
 }
 function catOverview(kit, c, keys) {
@@ -1789,7 +1899,7 @@ const actions = {
       let e;
       if (i >= 0) { e = data.entries[i]; e.v = d.v; }
       else { e = { id: uid(), c: c.id, s: d.s, d: ui.date, t: type, v: d.v }; data.entries.push(e); }
-      const lbl = valInfo(type, d.v)[1];
+      const lbl = valInfo(c, type, d.v)[1];
       toast(`${s.name.split(' ').slice(-1)[0]}: ${typeOf(c, type).label} ${lbl === '−' ? '−' : lbl}`, { label: e.n ? 'Anmerkung ändern' : 'Anmerkung', fn: () => actions.entryNote({ v: e.id }) });
     }
     const row = document.querySelector(`[data-row="${d.s}"]`);
@@ -1802,6 +1912,15 @@ const actions = {
     const type = curType(c), kind = kindOf(c, type), sid = inp.dataset.s;
     if (isAbsentOn(c, sid, ui.date)) return;
     let v = inp.value.trim();
+    if (scaleOf(c, type) === 'pct' && v) {
+      const n = parseFloat(v.replace(',', '.').replace(/[^\d.]/g, ''));
+      if (isNaN(n) || n < 0 || n > 100) { toast('Bitte einen Wert von 0 bis 100 eingeben'); inp.value = ''; return; }
+      inp.value = fmtVal(n); v = '%' + round3(n);
+      const i0 = data.entries.findIndex(e => e.c === c.id && e.s === sid && e.d === ui.date && e.t === type);
+      if (i0 >= 0) data.entries[i0].v = v; else data.entries.push({ id: uid(), c: c.id, s: sid, d: ui.date, t: type, v });
+      inp.closest('.valbox').classList.add('filled');
+      return save();
+    }
     if (kind === 'num' && v) {
       const n = parseFloat(v.replace(',', '.').replace(/[^\d.\-]/g, ''));
       if (isNaN(n)) { toast('Bitte eine Zahl eingeben'); inp.value = ''; return; }
@@ -1825,7 +1944,7 @@ const actions = {
     const e = data.entries.find(x => x.id === d.v); if (!e) return;
     const c = getClass(e.c), t = typeOf(c, e.t) || { label: e.t }, kind = kindOf(c, e.t);
     const s = c && c.students.find(x => x.id === e.s);
-    const val = e.t === 'vh' ? 'Vermerk' : kind === 'num' ? withUnit(e.v, t.unit) : valInfo(e.t, e.v)[1];
+    const val = e.t === 'vh' ? 'Vermerk' : kind === 'num' ? withUnit(e.v, t.unit) : valInfo(c, e.t, e.v)[1];
     let remove = false;
     const r = await modal({
       title: 'Anmerkung', ok: 'Speichern',
@@ -1856,7 +1975,7 @@ const actions = {
       if (x.kind === 'num') { x.unit = r.unit || ''; x.high = r.high; }
     } else if (!r.label || r.label === TYPES[k].label) delete cf.cats.labels[k];
     else cf.cats.labels[k] = r.label;
-    if (kindOf(c, k) === 'note' && r.scale) cf.scale[k] = r.scale;
+    if (kindOf(c, k) === 'note' && r.sc) applyScale(c, k, r.sc);
     await save(); render(); toast('Gespeichert');
   },
   async catAdd() {
@@ -1865,7 +1984,7 @@ const actions = {
     if (!r.label) return toast('Bitte einen Namen eingeben');
     const id = 'x' + uid();
     cfg(c).cats.custom.push({ id, label: r.label, kind: r.kind, ...(r.kind === 'num' ? { unit: r.unit, high: r.high } : {}) });
-    if (r.kind === 'note') { cfg(c).scale[id] = r.scale; cfg(c).weight[id] = 0; }
+    if (r.kind === 'note') { applyScale(c, id, r.sc); cfg(c).weight[id] = 0; }
     ui.type = id; saveUi();
     await save(); render(); toast(`„${r.label}“ angelegt`);
   },
@@ -1918,9 +2037,14 @@ const actions = {
     location.hash = '#/k/' + target.id;
     toast(`${plural(added, 'Person', 'Personen')} übernommen${copied ? ` · ${copied} Einträge kopiert` : ''}`);
   },
-  async setScale(d) {
+  async scaleEdit(d) {
     const c = currentClass(); if (!c) return;
-    cfg(c).scale[d.t] = d.v; await save(); render();
+    const k = d.t, t = typeOf(c, k); if (!t) return;
+    const st = scaleState(c, k);
+    const r = await modal({ title: 'Notenskala', text: t.label, ok: 'Speichern', body: '<div class="scalebox"></div>',
+      mount(dl) { bindScale(dl.querySelector('.scalebox'), st); }, collect: () => st });
+    if (!r) return;
+    applyScale(c, k, r); await save(); render(); toast(`${t.label}: ${SCALE_NAMES[r.scale]}`);
   },
   async wStep(d) {
     const c = currentClass(); if (!c) return;
@@ -1938,7 +2062,7 @@ const actions = {
     const cur = String(e.w || 1);
     const opts = [['0.5', 'Halb (×½)'], ['1', 'Normal (×1)'], ['2', 'Doppelt (×2)'], ['3', 'Dreifach (×3)']]
       .map(([v, l]) => [v, (v === cur ? '✓  ' : '') + l]);
-    const k = await modal({ title: 'Wie stark soll diese Note zählen?', text: `${(typeOf(getClass(e.c), e.t) || { long: e.t }).long} · ${fmtDayLong(e.d)} · ${valInfo(e.t, e.v)[1]}`, options: opts, cancel: 'Abbrechen' });
+    const k = await modal({ title: 'Wie stark soll diese Note zählen?', text: `${(typeOf(getClass(e.c), e.t) || { long: e.t }).long} · ${fmtDayLong(e.d)} · ${valInfo(getClass(e.c), e.t, e.v)[1]}`, options: opts, cancel: 'Abbrechen' });
     if (!k) return;
     if (k === '1') delete e.w; else e.w = +k;
     await save(); render(); toast(k === '1' ? 'Zählt normal' : `Zählt jetzt ×${fmtW(+k)}`);
@@ -1982,7 +2106,7 @@ const actions = {
     const e = data.entries.find(x => x.id === d.v); if (!e) return;
     const what = e.t === 'vh' ? typeOf(getClass(e.c), 'vh').label + ': ' + (e.n || 'Vermerk')
       : (() => { const c = getClass(e.c), t = typeOf(c, e.t) || { long: e.t }, kind = kindOf(c, e.t);
-          return `${t.long}: ${kind === 'num' ? withUnit(e.v, t.unit) : kind === 'text' ? e.v : valInfo(e.t, e.v)[1]}`; })();
+          return `${t.long}: ${kind === 'num' ? withUnit(e.v, t.unit) : kind === 'text' ? e.v : valInfo(c, e.t, e.v)[1]}`; })();
     if (!await modal({ title: 'Eintrag löschen?', text: `${fmtDayLong(e.d)}\n${what}`, ok: 'Löschen', danger: true })) return;
     data.entries = data.entries.filter(x => x !== e); await save(); render();
   },
@@ -2067,7 +2191,7 @@ const actions = {
     entriesOf(c.id).filter(e => names[e.s]).sort((a, b) => a.d.localeCompare(b.d) || names[a.s].localeCompare(names[b.s], 'de'))
       .forEach(e => rows.push([e.d.split('-').reverse().join('.'), names[e.s], (typeOf(c, e.t) || { long: e.t }).long,
         e.t === 'hu' ? (e.v === 'y' ? 'gebracht' : 'nicht gebracht') : e.t === 'vh' ? 'Vermerk'
-          : kindOf(c, e.t) === 'num' ? withUnit(e.v, typeOf(c, e.t).unit) : kindOf(c, e.t) === 'text' ? e.v : valInfo(e.t, e.v)[1],
+          : kindOf(c, e.t) === 'num' ? withUnit(e.v, typeOf(c, e.t).unit) : kindOf(c, e.t) === 'text' ? e.v : valInfo(c, e.t, e.v)[1],
         e.w ? fmtW(e.w) : '1', e.n || '']));
     saveFile(`Einträge_${safeName(c.name)}_${today()}.csv`, 'text/csv', toCSV(rows));
   },
