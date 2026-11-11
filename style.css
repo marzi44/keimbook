@@ -414,27 +414,17 @@ a.btn { text-decoration: none; }
   .tile.total .val { color: var(--accent); }
 }
 
-/* ---------- Verhalten: vier Smileys ---------- */
-.v.face { border-color: transparent; background: none; }
-.v.face.g { color: var(--pos); } .v.face.m { color: var(--mid); } .v.face.b { color: var(--neg); }
-.v.face:active { background: var(--fill); }
-.vhrow { display: inline-flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
-.vhc { display: inline-flex; align-items: center; gap: 2px; font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
-.vhc.g { color: var(--pos); } .vhc.m { color: var(--mid); } .vhc.b { color: var(--neg); }
-.tile .val .vhrow { gap: 4px 12px; }
-.tile .val .vhc { font-size: 20px; gap: 3px; }
-.tile .val .vhc svg { width: 22px; height: 22px; }
-.faces { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
-.facebtn {
-  display: grid; justify-items: center; gap: 6px; padding: 12px 2px 10px; border-radius: 16px;
-  border: 1.5px solid var(--line); background: var(--surface-2); font-size: 12.5px; font-weight: 600; color: var(--ink-2);
-  transition: background .15s, border-color .15s, transform .08s;
+/* ---------- Verhalten: Vermerke ---------- */
+.vmbtn {
+  height: 40px; padding: 0 14px 0 10px; border-radius: 999px; border: 1px solid var(--line-2); background: var(--surface);
+  display: inline-flex; align-items: center; gap: 4px; font-size: 14.5px; font-weight: 600; color: var(--ink-2); white-space: nowrap;
+  transition: transform .12s, background .15s;
 }
-.facebtn:active { transform: scale(.96); }
-.facebtn.g svg { color: var(--pos); } .facebtn.m svg { color: var(--mid); } .facebtn.b svg { color: var(--neg); }
-.facebtn.on.g { background: var(--pos-soft); border-color: var(--pos); color: var(--pos); }
-.facebtn.on.m { background: var(--mid-soft); border-color: var(--mid); color: var(--mid); }
-.facebtn.on.b { background: var(--neg-soft); border-color: var(--neg); color: var(--neg); }
+.vmbtn svg { width: 17px; height: 17px; }
+.vmbtn:active { transform: scale(.95); background: var(--fill); }
+.vmbtn.has { border-color: var(--neg); color: var(--neg); background: var(--neg-soft); }
+.vmbtn b { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--neg); color: #fff; font-size: 11.5px; display: inline-grid; place-items: center; margin-left: 2px; }
+.snote.vmnote { color: var(--neg); }
 
 /* ---------- Trend & Warnung ---------- */
 .warn {

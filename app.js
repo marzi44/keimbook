@@ -8,7 +8,7 @@ const PUBLIC_KEY = {
   x: 'kHkzCWyGjuxGxGf_3AMH2F_MKEWEjH1hfCnBf7K1Imo',
   y: 'Fv556fMFzralLJTUqYxNxI68b9Fd4ctkLzgn07BzKj0'
 };
-const APP_VERSION = '3.8';
+const APP_VERSION = '3.9';
 
 const TYPES = {
   ma: { label: 'Mitarbeit', long: 'Mitarbeit', icon: 'spark', vals: [['+', '+', 'g'], ['~', '~', 'm'], ['-', '−', 'b']] },
@@ -16,29 +16,10 @@ const TYPES = {
   sw: { label: 'Schriftlich', long: 'Schriftliche Wiederholung', icon: 'pen', vals: grades() },
   hu: { label: 'Hausübung', long: 'Hausübung', icon: 'book', vals: [['y', '✓', 'g'], ['n', '✗', 'b']] },
   an: { label: 'Anwesenheit', long: 'Anwesenheit', icon: 'pres', vals: [['AN', '✓', 'g'], ['A', '✗', 'b']] },
-  vh: { label: 'Verhalten', long: 'Verhalten', icon: 'smile', multi: true, vals: [['pp', 'sehr gut', 'g'], ['p', 'gut', 'g'], ['n', 'weniger gut', 'm'], ['nn', 'schlecht', 'b']] }
+  vh: { label: 'Verhalten', long: 'Verhalten', icon: 'frown', vals: [['x', 'Vermerk', 'b']] }
 };
-// Vier Smiley-Stufen für Verhalten
-const VH_LEVELS = ['pp', 'p', 'n', 'nn'];
-const VH_NUM = { pp: 1, p: 2, n: 4, nn: 5 };
-const FACE = {
-  pp: '<path d="M7.6 13.2h8.8a4.4 4.4 0 0 1-8.8 0z" fill="currentColor" stroke-width="1.6"/><path d="M8.3 9.8q1.2-1.6 2.4 0M13.3 9.8q1.2-1.6 2.4 0"/>',
-  p: '<path d="M8.4 13.8a4.3 4.3 0 0 0 7.2 0"/><path d="M9.3 9.6h.01M14.7 9.6h.01" stroke-width="2.8"/>',
-  n: '<path d="M8.8 15.4h6.4"/><path d="M9.3 9.6h.01M14.7 9.6h.01" stroke-width="2.8"/>',
-  nn: '<path d="M8.4 16.4a4.3 4.3 0 0 1 7.2 0"/><path d="M8.2 8.4l2.4 1.2M15.8 8.4l-2.4 1.2"/><path d="M9.4 11.1h.01M14.6 11.1h.01" stroke-width="2.6"/>'
-};
-const face = (v, size = 24) => `<svg class="sym" viewBox="0 0 24 24" width="${size}" height="${size}" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/>${FACE[v] || FACE.p}</svg>`;
-const vhLabel = v => (TYPES.vh.vals.find(x => x[0] === v) || ['', v])[1];
-const vhCls = v => (TYPES.vh.vals.find(x => x[0] === v) || ['', '', 'm'])[2];
-const vhPol = v => v === 'pp' || v === 'p' ? 'p' : 'n';
-function vhCounts(list) {
-  const items = VH_LEVELS.filter(v => list[v]).map(v => `<span class="vhc ${vhCls(v)}">${face(v, 15)}${list[v]}</span>`);
-  return items.length ? `<span class="vhrow">${items.join('')}</span>` : '';
-}
-const VH_TAGS = {
-  p: ['Hilfsbereit', 'Engagiert', 'Konzentriert', 'Rücksichtsvoll', 'Selbstständig', 'Gute Teamarbeit'],
-  n: ['Stört den Unterricht', 'Unaufmerksam', 'Material vergessen', 'Zu spät', 'Handy', 'Respektlos']
-};
+// Verhalten: nur Vermerke bei schlechtem Verhalten, jeweils mit Anmerkung – zählt nicht zur Note
+const VH_TAGS = ['Stört den Unterricht', 'Unaufmerksam', 'Material vergessen', 'Zu spät', 'Handy', 'Respektlos'];
 function grades() { return [['1', '1', 'g'], ['2', '2', 'g'], ['3', '3', 'm'], ['4', '4', 'm'], ['5', '5', 'b']]; }
 // Symbole als Vektorgrafik: dadurch sitzen +, ~, −, ✓ und ✗ in jeder Schrift exakt in der Mitte
 const SYM = {
@@ -57,7 +38,7 @@ const valInfo = (t, v) => ((SCALABLE.includes(t) || !TYPES[t]) ? [...SCALES.grad
 const SCALES = { grade: grades(), pm: [['+', '+', 'g'], ['~', '~', 'm'], ['-', '−', 'b']] };
 const SCALABLE = ['ma', 'mu', 'sw'];
 const BUILTIN = ['an', 'ma', 'mu', 'sw', 'hu', 'vh'];
-const DEFAULT_CFG = { scale: { ma: 'pm', mu: 'grade', sw: 'grade' }, weight: { ma: 30, mu: 30, sw: 40, hu: 0, vh: 0 }, cats: { hidden: [], custom: [] } };
+const DEFAULT_CFG = { scale: { ma: 'pm', mu: 'grade', sw: 'grade' }, weight: { ma: 30, mu: 30, sw: 40, hu: 0 }, cats: { hidden: [], custom: [] } };
 const NUM = { '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '+': 1, '~': 3, '-': 5, y: 1, p: 1, n: 5 };
 const SHORT = { an: 'Anwesenheit', ma: 'Mitarbeit', mu: 'Mündl.', sw: 'Schriftl.', hu: 'HÜ', vh: 'Verhalten' };
 // Eigene Kategorien: Note (1–5 bzw. + ~ −), Messwert (Zahl mit Einheit) oder Notiz (freier Text)
@@ -89,7 +70,7 @@ function kindOf(c, k) {
 }
 const catKeys = c => [...BUILTIN, ...cfg(c).cats.custom.map(x => x.id)];
 const visKeys = c => catKeys(c).filter(k => !cfg(c).cats.hidden.includes(k));
-const weighable = (c, k) => ['note', 'hu', 'vh'].includes(kindOf(c, k));
+const weighable = (c, k) => ['note', 'hu'].includes(kindOf(c, k));
 const shortOf = (c, k) => (c && cfg(c).cats.labels[k]) || SHORT[k] || (typeOf(c, k) || { label: k }).label;
 const scaleOf = (c, t) => kindOf(c, t) === 'note' ? (cfg(c).scale[t] || 'grade') : null;
 const valsFor = (c, t) => kindOf(c, t) === 'note' ? SCALES[scaleOf(c, t)] : TYPES[t].vals;
@@ -161,7 +142,6 @@ const ICON = {
   speech: svg('<path d="M20 12.5a7.5 7.5 0 0 1-11 6.6L4 20l1.1-4.2A7.5 7.5 0 1 1 20 12.5z"/>', 18, 1.8),
   pen: svg('<path d="M4 20h4L19.2 8.8a2.8 2.8 0 0 0-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>', 18, 1.8),
   book: svg('<path d="M4.5 5.5A2.5 2.5 0 0 1 7 3h12.5v15H7a2.5 2.5 0 0 0-2.5 2.5z"/><path d="M4.5 20.5A2.5 2.5 0 0 1 7 18h12.5v3H7"/>', 18, 1.8),
-  smile: svg('<circle cx="12" cy="12" r="8.5"/><path d="M8.5 14a4.2 4.2 0 0 0 7 0"/><path d="M9.2 9.6h.01M14.8 9.6h.01" stroke-width="2.6"/>', 18, 1.8),
   upload: svg('<path d="M12 15V4M7.5 8.5L12 4l4.5 4.5"/><path d="M4.5 15v3.5A1.5 1.5 0 0 0 6 20h12a1.5 1.5 0 0 0 1.5-1.5V15"/>', 19, 2),
   download: svg('<path d="M12 4v11M7.5 10.5L12 15l4.5-4.5"/><path d="M4.5 15v3.5A1.5 1.5 0 0 0 6 20h12a1.5 1.5 0 0 0 1.5-1.5V15"/>', 19, 2),
   key: svg('<circle cx="8" cy="15" r="4"/><path d="M11 12l8.5-8.5M16.5 6.5l2.5 2.5M14.5 8.5l2 2"/>', 18, 1.9),
@@ -203,6 +183,15 @@ const DB = {
 };
 
 let data = { classes: [], entries: [] };
+// Ab 3.9: Verhalten = nur noch Vermerke. Alte Smiley-Einträge werden einmalig entfernt, Verhalten zählt nicht mehr zur Note.
+function migrate(d) {
+  let changed = false;
+  const n = d.entries.length;
+  d.entries = d.entries.filter(e => e.t !== 'vh' || e.v === 'x');
+  if (d.entries.length !== n) changed = true;
+  d.classes.forEach(c => { if (c.cfg && c.cfg.weight && 'vh' in c.cfg.weight) { delete c.cfg.weight.vh; changed = true; } });
+  return changed;
+}
 let license = null;
 let lockMsg = '';
 const ui = Object.assign({ tab: 'e', type: 'ma', filter: 'all' }, lsGet('kb.ui', {}));
@@ -393,7 +382,8 @@ function viewEntry(c) {
   const bulk = type === 'hu' ? `<div class="bulk"><button class="link" data-a="bulkFill" data-v="y">Alle übrigen ✓</button></div>`
     : type === 'an' ? `<div class="bulk"><button class="link" data-a="bulkFill" data-v="AN">Alle übrigen anwesend</button></div>`
     : kind === 'num' ? `<p class="fine">${esc(t.label)}${t.unit ? ' in ' + esc(t.unit) : ''} · Wert eintippen, mit „Weiter“ zur nächsten Person. Leeres Feld löscht den Eintrag.</p>`
-      : kind === 'text' ? `<p class="fine">Notiz eintippen, mit „Weiter“ zur nächsten Person.</p>` : '';
+      : kind === 'text' ? `<p class="fine">Notiz eintippen, mit „Weiter“ zur nächsten Person.</p>`
+      : kind === 'vh' ? `<p class="fine">Nur bei schlechtem Verhalten: „Vermerk“ antippen und kurz notieren, was vorgefallen ist. Zählt nicht zur Note.</p>` : '';
   const rows = [...c.students].sort(byName).map(s => rowHTML(c, s)).join('');
   return datebar + `<div class="cats">${cats}</div>${bulk}<div class="card">${rows}</div>`;
 }
@@ -411,11 +401,8 @@ function rowHTML(c, s) {
   const todays = data.entries.filter(e => e.c === c.id && e.s === s.id && e.d === ui.date && e.t === type);
   let meta = '', btns, cls = '';
   if (kind === 'vh') {
-    const cnt = {}; todays.forEach(e => { cnt[e.v] = (cnt[e.v] || 0) + 1; });
-    meta = vhCounts(cnt);
-    btns = t.vals.map(([v, label, vc]) =>
-      `<button class="v add face ${vc}" data-a="mark" data-s="${s.id}" data-v="${v}" aria-label="${esc('Verhalten ' + label)}">${face(v, 25)}</button>`).join('');
-    cls = ' five';
+    if (todays.length) meta = `<span class="snote vmnote">${ICON.frown.replace('width="18" height="18"', 'width="12" height="12"')}${esc(todays.map(e => e.n).join(' · '))}</span>`;
+    btns = `<button class="vmbtn${todays.length ? ' has' : ''}" data-a="mark" data-s="${s.id}" data-v="x" aria-label="${esc('Vermerk für ' + s.name)}">${ICON.plus}Vermerk${todays.length > 1 ? ` <b>${todays.length}</b>` : ''}</button>`;
   } else if (kind === 'num' || kind === 'text') {
     const cur = todays[0];
     btns = `<label class="valbox ${kind}"><input class="valin" data-s="${s.id}" ${kind === 'num' ? 'inputmode="decimal"' : 'autocapitalize="sentences"'} enterkeyhint="next" autocomplete="off"
@@ -437,7 +424,7 @@ function rowHTML(c, s) {
 }
 
 function stats(c, sid) {
-  const st = { n: 0, avg: {}, cnt: {}, list: {}, nums: {}, texts: {}, hu: { y: 0, n: 0 }, vh: { pp: 0, p: 0, n: 0, nn: 0 }, abs: { A: 0, AN: 0 }, absDays: {}, total: null };
+  const st = { n: 0, avg: {}, cnt: {}, list: {}, nums: {}, texts: {}, hu: { y: 0, n: 0 }, vh: { n: 0, last: '', lastD: '' }, abs: { A: 0, AN: 0 }, absDays: {}, total: null };
   const acc = {}, vis = visKeys(c);
   for (const k of catKeys(c)) { acc[k] = { s: 0, w: 0 }; st.cnt[k] = { '+': 0, '~': 0, '-': 0 }; st.list[k] = []; st.nums[k] = { n: 0, best: null, last: null, lastD: '' }; st.texts[k] = { n: 0, last: '', lastD: '' }; }
   const es = entriesOf(c.id, sid).sort((a, b) => a.d.localeCompare(b.d));
@@ -453,10 +440,11 @@ function stats(c, sid) {
       continue;
     }
     if (kind === 'text') { const x = st.texts[e.t]; x.n++; x.last = e.v; x.lastD = e.d; continue; }
-    const w = e.w || 1, num = e.t === 'vh' ? VH_NUM[e.v] : NUM[e.v];
+    if (e.t === 'vh') { st.vh.n++; st.vh.last = e.n || ''; st.vh.lastD = e.d; continue; }
+    const w = e.w || 1, num = NUM[e.v];
     if (num != null) { acc[e.t].s += num * w; acc[e.t].w += w; }
     if (isAbs(e.v)) { if (st.absDays[e.d] !== 'A') st.absDays[e.d] = e.v === 'AN' ? 'AN' : 'A'; continue; }
-    if (e.t === 'hu' || e.t === 'vh') st[e.t][e.v] = (st[e.t][e.v] || 0) + 1;
+    if (e.t === 'hu') st.hu[e.v] = (st.hu[e.v] || 0) + 1;
     else {
       st.cnt[e.t][toPm(e.v)]++;
       const l = valInfo(e.t, e.v)[1];
@@ -487,7 +475,7 @@ function seriesOf(c, sid) {
   const acc = {}; keys.forEach(k => { acc[k] = { s: 0, w: 0 }; });
   const out = [];
   es.forEach((e, i) => {
-    const num = e.t === 'vh' ? VH_NUM[e.v] : NUM[e.v], w = e.w || 1;
+    const num = NUM[e.v], w = e.w || 1;
     if (num != null) { acc[e.t].s += num * w; acc[e.t].w += w; }
     if (i === es.length - 1 || es[i + 1].d !== e.d) {
       let S = 0, W = 0;
@@ -579,7 +567,7 @@ const dash = '<span class="chev">–</span>';
 function metricHTML(c, st, k) {
   if (k === 'hu') { const T = st.hu.y + st.hu.n; return T ? `${st.hu.y}/${T}` : dash; }
   if (k === 'an') return st.abs.A + st.abs.AN ? `${st.abs.A ? `<span class="b-t">${st.abs.A}× abw.</span>` : ''}${st.abs.AN ? `<span>${st.abs.AN}× anw.</span>` : ''}` : dash;
-  if (k === 'vh') return vhCounts(st.vh) || dash;
+  if (k === 'vh') return st.vh.n ? `<span class="b-t">${st.vh.n}×</span>` : dash;
   const kind = kindOf(c, k);
   if (kind === 'num') { const x = st.nums[k]; return x.best == null ? dash : esc(withUnit(x.best, typeOf(c, k).unit)); }
   if (kind === 'text') { const x = st.texts[k]; return x.n ? x.n + '×' : dash; }
@@ -675,7 +663,7 @@ function viewRating(c) {
     <div class="section">Anteil an der Gesamtnote</div>
     <div class="card">${wRows || '<div class="nothing">Keine benotbare Kategorie sichtbar</div>'}</div>
     <p class="fine">${sumLine}</p>
-    <p class="fine">Umrechnung: + = 1, ~ = 3, − = 5 · Hausübung gebracht = 1, nicht gebracht = 5 · Verhalten: sehr gut = 1, gut = 2, weniger gut = 4, schlecht = 5. Messwerte und Notizen zählen nicht zur Gesamtnote.<br>Einzelne Noten kannst du bei der jeweiligen Schülerin oder dem jeweiligen Schüler stärker oder schwächer zählen lassen: einfach auf die Note tippen.</p>
+    <p class="fine">Umrechnung: + = 1, ~ = 3, − = 5 · Hausübung gebracht = 1, nicht gebracht = 5 · Verhaltens-Vermerke, Messwerte und Notizen zählen nicht zur Gesamtnote.<br>Einzelne Noten kannst du bei der jeweiligen Schülerin oder dem jeweiligen Schüler stärker oder schwächer zählen lassen: einfach auf die Note tippen.</p>
     <div class="stack">
       <a class="btn secondary block" href="#/kat/${c.id}">${ICON.pen} Kategorien bearbeiten</a>
       ${data.classes.length > 1 ? `<button class="btn secondary block" data-a="cfgAll">Für alle Klassen übernehmen</button>` : ''}
@@ -689,7 +677,7 @@ function viewCats(c) {
   const desc = k => {
     const kind = kindOf(c, k), t = typeOf(c, k);
     if (k === 'hu') return 'gebracht / nicht gebracht';
-    if (k === 'vh') return '4 Smileys mit Notiz';
+    if (k === 'vh') return 'Vermerk mit Anmerkung · zählt nicht zur Note';
     if (k === 'an') return 'anwesend / abwesend · zählt nicht zur Note';
     if (kind === 'note') return scaleOf(c, k) === 'pm' ? '+ ~ −' : 'Note 1–5';
     if (kind === 'num') return 'Messwert' + (t.unit ? ' in ' + t.unit : '') + (t.high ? ' · höher ist besser' : ' · niedriger ist besser');
@@ -783,7 +771,6 @@ function viewStudent(c, sid) {
   const s = c.students.find(x => x.id === sid);
   setHeader({ title: s.name, back: '#/k/' + c.id, backLabel: c.name, act: { icon: 'more', a: 'studentMenu', label: 'Menü' } });
   const st = stats(c, sid);
-  const lastVh = entriesOf(c.id, sid).filter(e => e.t === 'vh').sort((a, b) => b.d.localeCompare(a.d))[0];
   const tile = k => {
     const sc = scaleOf(c, k), a = st.avg[k], t = typeOf(c, k), kind = kindOf(c, k);
     let val, sub;
@@ -803,8 +790,8 @@ function viewStudent(c, sid) {
       val = T ? `${st.hu.y}/${T}` : '–';
       sub = st.hu.n ? `${st.hu.n}× nicht gebracht` : T ? 'immer gebracht' : 'noch keine';
     } else if (k === 'vh') {
-      val = vhCounts(st.vh) || '–';
-      sub = lastVh ? 'zuletzt ' + relDay(lastVh.d) : 'noch nichts notiert';
+      val = st.vh.n ? `<span class="b-t">${st.vh.n}</span>` : '0';
+      sub = st.vh.n ? `${st.vh.n === 1 ? 'Vermerk' : 'Vermerke'} · zuletzt ${relDay(st.vh.lastD)}` : 'keine Vermerke';
     } else if (sc === 'pm') {
       const x = st.cnt[k];
       val = `<span class="g-t">+${x['+']}</span><span class="m-t">~${x['~']}</span><span class="b-t">−${x['-']}</span>`;
@@ -834,14 +821,14 @@ function viewStudent(c, sid) {
         const [, label, cls0] = valInfo(e.t, e.v);
         const t = typeOf(c, e.t), kind = kindOf(c, e.t);
         const cls = kind === 'num' || kind === 'text' ? 'n' : cls0;
-        const title = e.t === 'vh' ? t.label + ': ' + vhLabel(e.v) : t.long;
+        const title = e.t === 'vh' ? t.label + ': Vermerk' : t.long;
         const note = kind === 'text' ? e.v : e.n;
         const badge = e.t === 'an' ? `<span class="badge ${e.v === 'AN' ? 'g' : 'b'}">${e.v === 'AN' ? 'anwesend' : 'abwesend'}</span>`
           : isAbs(e.v) ? `<span class="badge abs" title="${ABS[e.v]}">${e.v}</span>`
           : e.t === 'vh' || kind === 'text' ? ''
           : kind === 'num' ? `<span class="badge n">${esc(withUnit(e.v, t.unit))}</span>`
             : `<button class="badge ${cls}" data-a="entryWeight" data-v="${e.id}" aria-label="Gewichtung ändern">${glyph(label)}${e.w && e.w !== 1 ? `<small>×${fmtW(e.w)}</small>` : ''}</button>`;
-        return `<div class="erow"><span class="eicon ${e.t === 'vh' ? vhCls(e.v) : cls}">${e.t === 'vh' ? face(e.v, 22) : ICON[t.icon]}</span>
+        return `<div class="erow"><span class="eicon ${e.t === 'vh' ? 'b' : cls}">${ICON[t.icon]}</span>
           ${kind === 'text' ? `<div class="etext"><div class="etitle">${esc(title)}</div><div class="enote">${esc(note)}</div></div>`
             : `<button class="etext ebtn" data-a="entryNote" data-v="${e.id}" aria-label="Anmerkung bearbeiten"><div class="etitle">${esc(title)}</div>${note ? `<div class="enote">${esc(note)}</div>` : ''}</button>`}
           ${badge}
@@ -962,29 +949,24 @@ function pickCats(c) {
   });
 }
 
-function behaviorSheet(name, start, title = 'Verhalten') {
-  let lvl = VH_LEVELS.includes(start) ? start : 'p';
+// Vermerk bei schlechtem Verhalten: Schnellauswahl + Anmerkung (Pflicht)
+function vermerkSheet(name, d, title = 'Verhalten') {
   const sel = new Set();
-  const tagsHTML = () => VH_TAGS[vhPol(lvl)].map(t => `<button type="button" class="tag ${sel.has(t) ? 'on ' + vhCls(lvl) : ''}" data-tag="${esc(t)}">${esc(t)}</button>`).join('');
   return modal({
-    title, text: name, ok: 'Speichern',
-    body: `<div class="faces">${TYPES.vh.vals.map(([v, l, cls]) => `<button type="button" class="facebtn ${cls}" data-lvl="${v}">${face(v, 34)}<span>${l}</span></button>`).join('')}</div>
-      <div class="tags"></div>
-      <textarea name="note" rows="2" placeholder="Notiz (optional)"></textarea>`,
-    mount(d) {
+    title: title + ': Vermerk', text: `${name} · ${dayWord(d) === 'Heute' ? 'heute' : fmtDay(d)}`, ok: 'Vermerk speichern',
+    body: `<div class="tags">${VH_TAGS.map(t => `<button type="button" class="tag" data-tag="${esc(t)}">${esc(t)}</button>`).join('')}</div>
+      <textarea name="note" rows="3" placeholder="Was ist vorgefallen?"></textarea>`,
+    mount(dl) {
+      const ok = dl.querySelector('.btns .primary'), ta = dl.querySelector('[name=note]');
       const paint = () => {
-        d.querySelectorAll('[data-lvl]').forEach(b => b.classList.toggle('on', b.dataset.lvl === lvl));
-        d.querySelector('.tags').innerHTML = tagsHTML();
+        dl.querySelectorAll('[data-tag]').forEach(b => { const on = sel.has(b.dataset.tag); b.classList.toggle('on', on); b.classList.toggle('b', on); });
+        ok.disabled = !sel.size && !ta.value.trim();
       };
-      d.querySelector('.faces').addEventListener('click', e => {
-        const b = e.target.closest('[data-lvl]'); if (!b || b.dataset.lvl === lvl) return;
-        if (vhPol(b.dataset.lvl) !== vhPol(lvl)) sel.clear();
-        lvl = b.dataset.lvl; paint();
-      });
-      d.querySelector('.tags').addEventListener('click', e => { const b = e.target.closest('[data-tag]'); if (!b) return; const t = b.dataset.tag; sel.has(t) ? sel.delete(t) : sel.add(t); paint(); });
+      dl.querySelector('.tags').addEventListener('click', e => { const b = e.target.closest('[data-tag]'); if (!b) return; const t = b.dataset.tag; sel.has(t) ? sel.delete(t) : sel.add(t); paint(); });
+      ta.addEventListener('input', paint);
       paint();
     },
-    collect(d) { return { v: lvl, n: [...sel, d.querySelector('[name=note]').value.trim()].filter(Boolean).join(' · ') }; }
+    collect(dl) { return [...sel, dl.querySelector('[name=note]').value.trim()].filter(Boolean).join(' · ') || null; }
   });
 }
 
@@ -1043,7 +1025,7 @@ function entryValue(c, e) {
   const t = typeOf(c, e.t) || { label: e.t }, kind = kindOf(c, e.t);
   if (isAbs(e.v)) return e.v === 'AN' ? 'AN – anwesend' : 'A – abwesend';
   if (e.t === 'hu') return e.v === 'y' ? 'gebracht' : 'nicht gebracht';
-  if (e.t === 'vh') return vhLabel(e.v);
+  if (e.t === 'vh') return 'Vermerk';
   if (kind === 'num') return withUnit(e.v, t.unit);
   if (kind === 'text') return e.v;
   return valInfo(e.t, e.v)[1].replace('−', '-');
@@ -1114,7 +1096,7 @@ function studentTrendXLSX(c, s) {
       const t = typeOf(c, k), kind = kindOf(c, k), st = r.st;
       if (k === 'an') return null;
       if (k === 'hu') { const T = st.hu.y + st.hu.n; return [t.label, T ? `${st.hu.y} von ${T} gebracht` : '']; }
-      if (k === 'vh') return [t.label, `sehr gut ${st.vh.pp} · gut ${st.vh.p} · weniger gut ${st.vh.n} · schlecht ${st.vh.nn}`];
+      if (k === 'vh') return [t.label, plural(st.vh.n, 'Vermerk', 'Vermerke')];
       if (kind === 'num') { const x = st.nums[k]; return [t.label + ' Bestwert', x.best == null ? '' : withUnit(x.best, t.unit)]; }
       if (kind === 'text') return [t.label, plural(st.texts[k].n, 'Notiz', 'Notizen')];
       return [t.label + ' Ø', st.avg[k]];
@@ -1122,7 +1104,7 @@ function studentTrendXLSX(c, s) {
   return xlsxBook([
     { name: 'Übersicht', head: ['Kennzahl', 'Wert'], rows: kv, widths: [26, 40], num: [1] },
     { name: 'Verlauf', head: ['Datum', 'Gesamtnote'], rows: r.tr.ser.map(p => [ddmmyyyy(p.d), p.v]), widths: [12, 12], num: [1] },
-    { name: 'Einträge', head: ['Datum', 'Kategorie', 'Wert', 'Gewicht', 'Anmerkung'], rows: es.map(e => [ddmmyyyy(e.d), typeOf(c, e.t).label, /^[1-5]$/.test(e.v) ? +e.v : entryValue(c, e), e.w || 1, e.t === 'vh' || kindOf(c, e.t) === 'text' ? (e.t === 'vh' ? e.n || '' : '') : e.n || '']), widths: [12, 22, 18, 9, 50], num: [] }
+    { name: 'Einträge', head: ['Datum', 'Kategorie', 'Wert', 'Gewicht', 'Anmerkung'], rows: es.map(e => [ddmmyyyy(e.d), typeOf(c, e.t).label, /^[1-5]$/.test(e.v) ? +e.v : e.t === 'vh' ? 'Vermerk' : entryValue(c, e), e.w || 1, kindOf(c, e.t) === 'text' ? '' : e.n || '']), widths: [12, 22, 18, 9, 50], num: [] }
   ]);
 }
 
@@ -1253,7 +1235,7 @@ function catSummary(c, k, es) {
   const cnt = v => es.filter(e => e.v === v).length;
   if (k === 'an') return [['anwesend', cnt('AN')], ['abwesend', cnt('A') + cnt('AE')]];
   if (k === 'hu') { const y = cnt('y'), n = cnt('n'); return [['gebracht', y], ['nicht gebracht', n], ['Quote', y + n ? Math.round(y / (y + n) * 100) + ' %' : '']]; }
-  if (k === 'vh') return [['sehr gut', cnt('pp')], ['gut', cnt('p')], ['weniger gut', cnt('n')], ['schlecht', cnt('nn')]];
+  if (k === 'vh') return [['Vermerke', es.length], ['zuletzt', es.length ? es[es.length - 1].n || '' : '']];
   if (kind === 'num') {
     const v = es.map(e => parseFloat(e.v)).filter(x => !isNaN(x));
     const best = v.length ? (t.high ? Math.max(...v) : Math.min(...v)) : null;
@@ -1272,7 +1254,8 @@ function catData(c, k) {
   const dates = [...new Set(rows.flatMap(r => r.es.map(e => e.d)))].sort();
   return { t: typeOf(c, k), kind: kindOf(c, k), rows, dates };
 }
-const catVal = (c, e) => e.t === 'an' ? (e.v === 'AN' ? 'anwesend' : 'abwesend') : entryValue(c, e);
+const catVal = (c, e) => e.t === 'vh' ? e.n || 'Vermerk' : e.t === 'an' ? (e.v === 'AN' ? 'anwesend' : 'abwesend') : entryValue(c, e);
+const dayCell = (c, es, d) => { const l = es.filter(x => x.d === d); return !l.length ? '' : l[0].t === 'vh' ? l.map(x => x.n || 'Vermerk').join(' · ') : cellVal(c, l[0]); };
 const cellVal = (c, e) => /^[1-5]$/.test(e.v) ? +e.v : kindOf(c, e.t) === 'num' && !isNaN(parseFloat(e.v)) ? round3(parseFloat(e.v)) : catVal(c, e);
 function catXLSX(c, keys) {
   keys = [].concat(keys);
@@ -1288,9 +1271,9 @@ function catXLSX(c, keys) {
     { name: 'Übersicht', head, num, widths: [28, 12, ...head.slice(2).map(h => Math.min(26, Math.max(12, h.length + 2)))],
       rows: studs.map(s => [s.name, s.from || '', ...all.flatMap(a => a.rows.find(r => r.s.id === s.id).sum.map(x => val(x[1])))]) },
     ...all.map(a => ({ name: sheetName(a.t.label), head: ['Name', ...a.dates.map(ddmmyyyy)], widths: [28, ...a.dates.map(() => 11)], num: [],
-      rows: a.rows.map(r => [r.s.name, ...a.dates.map(d => { const e = r.es.find(x => x.d === d); return e ? cellVal(c, e) : ''; })]) })),
+      rows: a.rows.map(r => [r.s.name, ...a.dates.map(d => dayCell(c, r.es, d))]) })),
     { name: 'Einträge', head: ['Datum', 'Name', 'Kategorie', 'Wert', 'Gewicht', 'Anmerkung'], widths: [12, 28, 18, 18, 9, 50], num: [],
-      rows: all.flatMap((a, ai) => a.rows.flatMap(r => r.es.map(e => ({ d: e.d, ai, row: [ddmmyyyy(e.d), r.s.name, a.t.label, cellVal(c, e), e.w || 1, a.kind === 'text' ? '' : e.n || ''] }))))
+      rows: all.flatMap((a, ai) => a.rows.flatMap(r => r.es.map(e => ({ d: e.d, ai, row: [ddmmyyyy(e.d), r.s.name, a.t.label, cellVal(c, e), e.w || 1, a.kind === 'text' || a.k === 'vh' ? '' : e.n || ''] }))))
         .sort((x, y) => x.d.localeCompare(y.d) || x.ai - y.ai).map(x => x.row) }
   ]);
 }
@@ -1300,15 +1283,15 @@ function catXLSX1(c, k) {
   const fmtCell = v => typeof v === 'number' ? v : v ?? '';
   return xlsxBook([
     { name: 'Übersicht', head: ['Name', 'Herkunft', ...sumHead], rows: rows.map(r => [r.s.name, r.s.from || '', ...r.sum.map(x => fmtCell(x[1]))]), widths: [28, 12, ...sumHead.map(() => 16)], num: sumHead.map((h, i) => h === 'Ø' ? 2 + i : -1) },
-    { name: 'Tabelle', head: ['Name', ...dates.map(ddmmyyyy)], rows: rows.map(r => [r.s.name, ...dates.map(d => { const e = r.es.find(x => x.d === d); return e ? cellVal(c, e) : ''; })]), widths: [28, ...dates.map(() => 11)], num: [] },
-    { name: 'Einträge', head: ['Datum', 'Name', 'Wert', 'Gewicht', 'Anmerkung'], rows: rows.flatMap(r => r.es.map(e => [ddmmyyyy(e.d), r.s.name, cellVal(c, e), e.w || 1, kindOf(c, k) === 'text' ? '' : e.n || ''])).sort((a, b) => a[0].split('.').reverse().join().localeCompare(b[0].split('.').reverse().join())), widths: [12, 28, 18, 9, 50], num: [] }
+    { name: 'Tabelle', head: ['Name', ...dates.map(ddmmyyyy)], rows: rows.map(r => [r.s.name, ...dates.map(d => dayCell(c, r.es, d))]), widths: [28, ...dates.map(() => 11)], num: [] },
+    { name: 'Einträge', head: ['Datum', 'Name', 'Wert', 'Gewicht', 'Anmerkung'], rows: rows.flatMap(r => r.es.map(e => [ddmmyyyy(e.d), r.s.name, cellVal(c, e), e.w || 1, kindOf(c, k) === 'text' || k === 'vh' ? '' : e.n || ''])).sort((a, b) => a[0].split('.').reverse().join().localeCompare(b[0].split('.').reverse().join())), widths: [12, 28, 18, 9, 50], num: [] }
   ]);
 }
 function catSection(kit, c, k, eyebrow) {
   const { W, H, M, COL } = kit, { t, kind, rows, dates } = catData(c, k);
   const n = rows.reduce((a, r) => a + r.es.length, 0);
   const span = dates.length ? `${fmtDay(dates[0])} bis ${fmtDay(dates[dates.length - 1])}` : 'noch keine Einträge';
-  const desc = k === 'an' ? 'anwesend / abwesend' : k === 'hu' ? 'gebracht / nicht gebracht' : k === 'vh' ? 'vier Stufen von sehr gut bis schlecht'
+  const desc = k === 'an' ? 'anwesend / abwesend' : k === 'hu' ? 'gebracht / nicht gebracht' : k === 'vh' ? 'Vermerke bei schlechtem Verhalten'
     : kind === 'num' ? `Messwert${t.unit ? ' in ' + t.unit : ''}, ${t.high ? 'höher' : 'niedriger'} ist besser` : kind === 'text' ? 'Notizen' : scaleOf(c, k) === 'pm' ? 'Bewertung + ~ −' : 'Noten 1 bis 5';
   const X = { name: M, sum: M + 150, list: M + 262 }, LW = W - M - X.list - 8, FS = 8.5, LH = 11;
   const head = first => {
@@ -1319,13 +1302,15 @@ function catSection(kit, c, k, eyebrow) {
     return y + 22;
   };
   const sumText = sum => {
-    const l = sum.filter(x => x[1] !== null && x[1] !== '' && !(x[0] === 'zuletzt' && kind === 'text') && !(k === 'vh' && x[1] === 0))
-      .map(([l, v]) => l === 'Ø' ? `Ø ${fmtNum(v)}` : l.startsWith('Bestwert') ? `Bestwert ${withUnit(v, t.unit)}` : l === 'zuletzt' ? `zuletzt ${withUnit(v, t.unit)}` : `${v} ${l}`);
+    const l = sum.filter(x => x[1] !== null && x[1] !== '' && !(x[0] === 'zuletzt' && (kind === 'text' || k === 'vh')) && !(k === 'vh' && x[1] === 0))
+      .map(([l, v]) => l === 'Ø' ? `Ø ${fmtNum(v)}` : l.startsWith('Bestwert') ? `Bestwert ${withUnit(v, t.unit)}` : l === 'zuletzt' ? `zuletzt ${withUnit(v, t.unit)}` : l === 'Vermerke' ? plural(v, 'Vermerk', 'Vermerke') : `${v} ${l}`);
     return l.length ? l : ['–'];
   };
   let y = head(true), idx = 0;
   for (const r of rows) {
-    const tokens = r.es.map(e => `${dt(e.d).toLocaleDateString('de-AT', { day: 'numeric', month: 'numeric' })} ${kind === 'text' ? '' : catVal(c, e).replace(' – ', ' ')}${e.w && e.w !== 1 ? ` ×${fmtW(e.w)}` : ''}${(kind === 'text' ? e.v : e.n) ? ` (${kit.fit(kind === 'text' ? e.v : e.n, 150, FS)})` : ''}`.replace(/\s+/g, ' ').trim());
+    const day = e => dt(e.d).toLocaleDateString('de-AT', { day: 'numeric', month: 'numeric' });
+    const tokens = r.es.map(e => kind === 'text' || k === 'vh' ? `${day(e)}: ${kit.fit((kind === 'text' ? e.v : e.n) || 'Vermerk', 220, FS)}`
+      : `${day(e)} ${catVal(c, e).replace(' – ', ' ')}${e.w && e.w !== 1 ? ` ×${fmtW(e.w)}` : ''}${e.n ? ` (${kit.fit(e.n, 150, FS)})` : ''}`.replace(/\s+/g, ' ').trim());
     const lines = tokens.length ? kit.wrap(tokens.join('  ·  '), LW, FS) : ['–'];
     const sl = sumText(r.sum);
     const RH = Math.max(24, Math.max(lines.length, sl.length) * LH + 12);
@@ -1344,7 +1329,7 @@ function catShort(c, k, es) {
   const sum = catSummary(c, k, es), kind = kindOf(c, k), t = typeOf(c, k);
   if (k === 'an') return [String(sum[1][1]), null, sum[1][1] ? 'neg' : null];
   if (k === 'hu') return [`${sum[0][1]} / ${sum[0][1] + sum[1][1]}`, null];
-  if (k === 'vh') return [vhLabel(es[es.length - 1].v), null];
+  if (k === 'vh') return [plural(es.length, 'Vermerk', 'Vermerke'), null, 'neg'];
   if (kind === 'num') return [sum[0][1] == null ? '–' : withUnit(sum[0][1], t.unit), null];
   if (kind === 'text') return [plural(es.length, 'Notiz', 'Notizen'), null];
   return sum[0][1] == null ? ['–', null] : ['Ø ' + fmtNum(sum[0][1]), sum[0][1]];
@@ -1353,7 +1338,7 @@ function catOverview(kit, c, keys) {
   const { W, H, M, COL } = kit;
   const labels = keys.map(k => typeOf(c, k).label);
   const legend = [keys.some(k => kindOf(c, k) === 'note') && 'Ø = gewichteter Schnitt', keys.includes('an') && 'Anwesenheit = Tage abwesend',
-    keys.includes('hu') && 'Hausübung = gebracht / gesamt', keys.includes('vh') && 'Verhalten = zuletzt', keys.some(k => kindOf(c, k) === 'num') && 'Messwerte = Bestwert'].filter(Boolean).join(' · ');
+    keys.includes('hu') && 'Hausübung = gebracht / gesamt', keys.includes('vh') && 'Verhalten = Vermerke', keys.some(k => kindOf(c, k) === 'num') && 'Messwerte = Bestwert'].filter(Boolean).join(' · ');
   const NW = keys.length > 4 ? 120 : 150, CW = (W - 2 * M - NW) / keys.length, FS = CW > 80 ? 9.5 : 8.8, RH = 24;
   const hs = l => { let z = 8; while (z > 6 && kit.wid(l, z, true) > CW - 6) z -= .25; return z; };
   const by = Object.fromEntries(keys.map(k => [k, catData(c, k)]));
@@ -1437,7 +1422,7 @@ function studentTrendPDF(c, s) {
     const kind = kindOf(c, key);
     if (key === 'an') return st.abs.A + st.abs.AN ? `${st.abs.AN}× anwesend · ${st.abs.A}× abwesend` : '–';
     if (key === 'hu') { const T = st.hu.y + st.hu.n; return T ? `${st.hu.y} von ${T} gebracht` : '–'; }
-    if (key === 'vh') return st.vh.pp + st.vh.p + st.vh.n + st.vh.nn ? `sehr gut ${st.vh.pp} · gut ${st.vh.p} · weniger gut ${st.vh.n} · schlecht ${st.vh.nn}` : '–';
+    if (key === 'vh') return st.vh.n ? plural(st.vh.n, 'Vermerk', 'Vermerke') : 'keine Vermerke';
     if (kind === 'num') { const x = st.nums[key]; return x.best == null ? '–' : `Bestwert ${withUnit(x.best, typeOf(c, key).unit)} · ${plural(x.n, 'Messung', 'Messungen')}`; }
     if (kind === 'text') return st.texts[key].n ? plural(st.texts[key].n, 'Notiz', 'Notizen') : '–';
     return st.avg[key] == null ? '–' : `Ø ${fmtNum(st.avg[key])}  (${st.list[key].join(', ')})`;
@@ -1771,9 +1756,9 @@ const actions = {
       }
     }
     if (type === 'vh') {
-      const r = await behaviorSheet(s.name, d.v, typeOf(c, 'vh').label); if (!r) return;
-      data.entries.push({ id: uid(), c: c.id, s: s.id, d: ui.date, t: type, v: r.v, n: r.n });
-      toast('Verhalten notiert: ' + vhLabel(r.v));
+      const n = await vermerkSheet(s.name, ui.date, typeOf(c, 'vh').label); if (!n) return;
+      data.entries.push({ id: uid(), c: c.id, s: s.id, d: ui.date, t: type, v: 'x', n });
+      toast(`Vermerk notiert: ${s.name.split(' ').slice(-1)[0]}`);
     } else {
       const i = data.entries.findIndex(e => e.c === c.id && e.s === d.s && e.d === ui.date && e.t === type);
       if (i >= 0 && data.entries[i].v === d.v) return actions.entryNote({ v: data.entries[i].id }, true);
@@ -1816,7 +1801,7 @@ const actions = {
     const e = data.entries.find(x => x.id === d.v); if (!e) return;
     const c = getClass(e.c), t = typeOf(c, e.t) || { label: e.t }, kind = kindOf(c, e.t);
     const s = c && c.students.find(x => x.id === e.s);
-    const val = e.t === 'vh' ? vhLabel(e.v) : kind === 'num' ? withUnit(e.v, t.unit) : valInfo(e.t, e.v)[1];
+    const val = e.t === 'vh' ? 'Vermerk' : kind === 'num' ? withUnit(e.v, t.unit) : valInfo(e.t, e.v)[1];
     let remove = false;
     const r = await modal({
       title: 'Anmerkung', ok: 'Speichern',
@@ -1937,9 +1922,9 @@ const actions = {
   async vhStudent() {
     const c = currentClass(); const s = c && c.students.find(x => x.id === currentStudentId()); if (!s) return;
     if (isAbsentOn(c, s.id, today())) return toast(`${s.name} ist heute abwesend`);
-    const r = await behaviorSheet(s.name, 'p', typeOf(c, 'vh').label); if (!r) return;
-    data.entries.push({ id: uid(), c: c.id, s: s.id, d: today(), t: 'vh', v: r.v, n: r.n });
-    await save(); render(); toast('Verhalten notiert');
+    const n = await vermerkSheet(s.name, today(), typeOf(c, 'vh').label); if (!n) return;
+    data.entries.push({ id: uid(), c: c.id, s: s.id, d: today(), t: 'vh', v: 'x', n });
+    await save(); render(); toast('Vermerk notiert');
   },
   async bulkFill(d) {
     const c = currentClass(); if (!c) return;
@@ -1955,7 +1940,7 @@ const actions = {
 
   async studentMenu() {
     const c = currentClass(); const s = c && c.students.find(x => x.id === currentStudentId()); if (!s) return;
-    const k = await modal({ title: s.name, options: [...(visKeys(c).includes('vh') ? [['vh', `${typeOf(c, 'vh').label} notieren`]] : []), ['exp', 'Trend exportieren'], ['ren', 'Umbenennen'], ['del', 'Aus der Klasse entfernen', true]], cancel: 'Schließen' });
+    const k = await modal({ title: s.name, options: [...(visKeys(c).includes('vh') ? [['vh', `${typeOf(c, 'vh').label}: Vermerk notieren`]] : []), ['exp', 'Trend exportieren'], ['ren', 'Umbenennen'], ['del', 'Aus der Klasse entfernen', true]], cancel: 'Schließen' });
     if (k === 'vh') return actions.vhStudent();
     if (k === 'exp') return actions.studentExport();
     if (k === 'ren') {
@@ -1971,7 +1956,7 @@ const actions = {
   },
   async delEntry(d) {
     const e = data.entries.find(x => x.id === d.v); if (!e) return;
-    const what = e.t === 'vh' ? typeOf(getClass(e.c), 'vh').label + ': ' + vhLabel(e.v) + (e.n ? ' – ' + e.n : '')
+    const what = e.t === 'vh' ? typeOf(getClass(e.c), 'vh').label + ': ' + (e.n || 'Vermerk')
       : (() => { const c = getClass(e.c), t = typeOf(c, e.t) || { long: e.t }, kind = kindOf(c, e.t);
           return `${t.long}: ${kind === 'num' ? withUnit(e.v, t.unit) : kind === 'text' ? e.v : valInfo(e.t, e.v)[1]}`; })();
     if (!await modal({ title: 'Eintrag löschen?', text: `${fmtDayLong(e.d)}\n${what}`, ok: 'Löschen', danger: true })) return;
@@ -2026,7 +2011,7 @@ const actions = {
       const t = typeOf(c, k), kind = kindOf(c, k);
       if (k === 'an') head.push('anwesend', 'abwesend');
       else if (k === 'hu') head.push(`${t.label} gebracht`, `${t.label} nicht gebracht`);
-      else if (k === 'vh') head.push(`${t.label} sehr gut`, `${t.label} gut`, `${t.label} weniger gut`, `${t.label} schlecht`);
+      else if (k === 'vh') head.push(`${t.label} Vermerke`, `${t.label} zuletzt`);
       else if (kind === 'num') head.push(`${t.label} Bestwert${t.unit ? ' (' + t.unit + ')' : ''}`, `${t.label} zuletzt`, `${t.label} Messungen`);
       else if (kind === 'text') head.push(`${t.label} Anzahl`, `${t.label} zuletzt`);
       else head.push(`${t.label} Ø`, `${t.label} Einträge`);
@@ -2040,7 +2025,7 @@ const actions = {
         const kind = kindOf(c, k);
         if (k === 'an') r.push(st.abs.AN, st.abs.A);
         else if (k === 'hu') r.push(st.hu.y, st.hu.n);
-        else if (k === 'vh') r.push(st.vh.pp, st.vh.p, st.vh.n, st.vh.nn);
+        else if (k === 'vh') r.push(st.vh.n, st.vh.last);
         else if (kind === 'num') { const x = st.nums[k]; r.push(x.best == null ? '' : fmtVal(x.best), x.last == null ? '' : fmtVal(x.last), x.n); }
         else if (kind === 'text') { const x = st.texts[k]; r.push(x.n, x.last); }
         else r.push(st.avg[k] == null ? '' : fmtNum(st.avg[k]), st.list[k].join(' '));
@@ -2057,7 +2042,7 @@ const actions = {
     const rows = [['Datum', 'Name', 'Kategorie', 'Wert', 'Gewicht', 'Notiz']];
     entriesOf(c.id).filter(e => names[e.s]).sort((a, b) => a.d.localeCompare(b.d) || names[a.s].localeCompare(names[b.s], 'de'))
       .forEach(e => rows.push([e.d.split('-').reverse().join('.'), names[e.s], (typeOf(c, e.t) || { long: e.t }).long,
-        e.t === 'hu' ? (e.v === 'y' ? 'gebracht' : 'nicht gebracht') : e.t === 'vh' ? vhLabel(e.v)
+        e.t === 'hu' ? (e.v === 'y' ? 'gebracht' : 'nicht gebracht') : e.t === 'vh' ? 'Vermerk'
           : kindOf(c, e.t) === 'num' ? withUnit(e.v, typeOf(c, e.t).unit) : kindOf(c, e.t) === 'text' ? e.v : valInfo(e.t, e.v)[1],
         e.w ? fmtW(e.w) : '1', e.n || '']));
     saveFile(`Einträge_${safeName(c.name)}_${today()}.csv`, 'text/csv', toCSV(rows));
@@ -2085,6 +2070,7 @@ const actions = {
     if (k === 'replace') {
       if (data.classes.length && !await modal({ title: 'Alles ersetzen?', text: 'Alle aktuellen Daten auf diesem Gerät werden überschrieben.', ok: 'Ersetzen', danger: true })) return;
       data = { classes: inc.classes, entries: inc.entries };
+      migrate(data);
     } else {
       const ids = new Set(data.entries.map(e => e.id));
       for (const c of inc.classes) {
@@ -2093,6 +2079,7 @@ const actions = {
         else { const sids = new Set(ex.students.map(s => s.id)); c.students.forEach(s => { if (!sids.has(s.id)) ex.students.push(s); }); }
       }
       inc.entries.forEach(e => { if (!ids.has(e.id)) data.entries.push(e); });
+      migrate(data);
     }
     await save(); location.hash = '#/'; render(); toast('Sicherung importiert');
   },
@@ -2128,6 +2115,7 @@ document.addEventListener('keydown', e => {
 async function loadData() {
   const d = await DB.get('data');
   if (d && Array.isArray(d.classes)) data = d;
+  if (migrate(data)) await save();
 }
 
 async function start() {
