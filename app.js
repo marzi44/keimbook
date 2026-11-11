@@ -8,7 +8,7 @@ const PUBLIC_KEY = {
   x: 'kHkzCWyGjuxGxGf_3AMH2F_MKEWEjH1hfCnBf7K1Imo',
   y: 'Fv556fMFzralLJTUqYxNxI68b9Fd4ctkLzgn07BzKj0'
 };
-const APP_VERSION = '4.2';
+const APP_VERSION = '4.4';
 
 const TYPES = {
   ma: { label: 'Mitarbeit', long: 'Mitarbeit', icon: 'spark', vals: [['+', '+', 'g'], ['~', '~', 'm'], ['-', '−', 'b']] },
@@ -56,6 +56,7 @@ function gradeVal(c, e) {
   if (v.startsWith('o:')) { const l = ownLevels(c, e.t).find(x => 'o:' + x.id === v); return l ? l.g : null; }
   return NUM[v] ?? null;
 }
+const scaleShort = (c, k) => { const sc = scaleOf(c, k); return sc === 'pm' ? '+ ~ −' : sc === 'pct' ? `Prozent · 1 ab ${pctLimits(c, k)[0]} %` : sc === 'own' ? 'Eigene: ' + ownLevels(c, k).map(x => x.l).join(' ') : 'Note 1–5'; };
 function scaleDesc(c, k) {
   const sc = scaleOf(c, k);
   if (sc === 'pm') return '+ ~ −';
@@ -182,6 +183,7 @@ const ICON = {
   tFlat: svg('<path d="M4.5 12h14"/><path d="M15 8.5l3.5 3.5-3.5 3.5"/>', 17, 2.2),
   sliders: svg('<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>', 19, 2),
   close: svg('<path d="M7 7l10 10M17 7L7 17"/>', 18, 2),
+  lock: svg('<rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8.5 10.5V7.5a3.5 3.5 0 0 1 7 0v3"/>', 18, 1.9),
   info: svg('<circle cx="12" cy="12" r="8.5"/><path d="M12 11v5M12 8h.01" stroke-width="2.4"/>', 18, 1.9)
 };
 
@@ -208,8 +210,112 @@ const DB = {
       tx.objectStore('kv').put(v, k);
       tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error);
     });
+  },
+  del(k) {
+    return new Promise((res, rej) => {
+      const tx = this.db.transaction('kv', 'readwrite');
+      tx.objectStore('kv').delete(k);
+      tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error);
+    });
   }
 };
+
+/* ---------- Verschlüsselung: AES-256-GCM, Schlüssel aus PIN bzw. Passwort (PBKDF2-SHA-256) ---------- */
+const TE = new TextEncoder(), TD = new TextDecoder();
+const toB64 = u8 => { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); };
+const fromB64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+const Crypt = {
+  ITER: 600000,
+  rnd: n => crypto.getRandomValues(new Uint8Array(n)),
+  async base(secret) { return crypto.subtle.importKey('raw', TE.encode(secret), 'PBKDF2', false, ['deriveKey', 'deriveBits']); },
+  async kek(secret, salt, iter) {
+    return crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: iter, hash: 'SHA-256' }, await this.base(secret), { name: 'AES-GCM', length: 256 }, false, ['wrapKey', 'unwrapKey']);
+  },
+  async rawKey(secret, salt, iter) { return new Uint8Array(await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: iter, hash: 'SHA-256' }, await this.base(secret), 256)); },
+  async seal(key, bytes) { const iv = this.rnd(12); return { iv, ct: new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, bytes)) }; },
+  async open(key, box) { return new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: box.iv }, key, box.ct)); }
+};
+
+/* ---------- App-Sperre mit PIN: Daten liegen verschlüsselt im Speicher, der Schlüssel nur entsperrt im Arbeitsspeicher ---------- */
+let lockCfg = null;     // { salt, iter, iv, wrapped, after }
+let dek = null;         // Datenschlüssel (nur im entsperrten Zustand)
+let locked = false;
+let hiddenAt = 0;
+const PIN_LEN = 6;
+const pinTries = () => lsGet('kb.pinTries', { n: 0, until: 0 });
+async function setPin(pin) {
+  if (!dek) dek = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
+  const salt = Crypt.rnd(16), iv = Crypt.rnd(12), iter = Crypt.ITER;
+  const wrapped = new Uint8Array(await crypto.subtle.wrapKey('raw', dek, await Crypt.kek(pin, salt, iter), { name: 'AES-GCM', iv }));
+  lockCfg = { salt, iter, iv, wrapped, after: lockCfg ? lockCfg.after : 1 };
+  await DB.set('lock', lockCfg);
+  await reStoreBackupKey();
+  await save();
+}
+async function tryUnlock(pin) {
+  let key;
+  try {
+    key = await crypto.subtle.unwrapKey('raw', lockCfg.wrapped, await Crypt.kek(pin, lockCfg.salt, lockCfg.iter), { name: 'AES-GCM', iv: lockCfg.iv }, { name: 'AES-GCM' }, true, ['encrypt', 'decrypt']);
+  } catch { return false; }
+  const d = await DB.get('data');
+  data = d && d.enc ? JSON.parse(TD.decode(await Crypt.open(key, d))) : (d && Array.isArray(d.classes) ? d : { classes: [], entries: [] });
+  dek = key; locked = false;
+  if (migrate(data)) await save();
+  return true;
+}
+async function removePin() {
+  const k = await loadBackupKey().catch(() => null);
+  lockCfg = null; dek = null;
+  await DB.del('lock'); await save();
+  if (k) await storeBackupKey(k);
+}
+function lockNow() {
+  if (!lockCfg || locked) return;
+  locked = true; dek = null; data = { classes: [], entries: [] };
+  const d = $('#dlg'); if (d.open) d.close();
+  render();
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') { hiddenAt = Date.now(); return; }
+  if (lockCfg && !locked && hiddenAt && Date.now() - hiddenAt >= (lockCfg.after ?? 1) * 60000) lockNow();
+});
+
+/* ---------- Sicherungspasswort: gespeichert wird nur der daraus abgeleitete Schlüssel (bei PIN-Sperre verschlüsselt) ---------- */
+let hasBkPw = false;
+async function setBackupPassword(pw) {
+  const salt = Crypt.rnd(16), iter = Crypt.ITER;
+  await storeBackupKey({ salt, iter, raw: await Crypt.rawKey(pw, salt, iter) });
+  hasBkPw = true;
+}
+async function storeBackupKey(k) {
+  await DB.set('bkkey', dek ? { salt: k.salt, iter: k.iter, box: await Crypt.seal(dek, k.raw) } : k);
+}
+async function loadBackupKey() {
+  const s = await DB.get('bkkey'); if (!s) return null;
+  const raw = s.box ? (dek ? await Crypt.open(dek, s.box) : null) : s.raw;
+  return raw ? { salt: s.salt, iter: s.iter, raw } : null;
+}
+async function reStoreBackupKey() { const k = await loadBackupKey().catch(() => null); if (k) await storeBackupKey(k); }
+
+// Eingabe von PIN oder Passwort (zweimal beim Festlegen)
+function secretSheet({ title, text, pin = false, twice = false, ok = 'Weiter' }) {
+  const field = (n, ph) => `<input name="${n}" type="password" ${pin ? `inputmode="numeric" maxlength="${PIN_LEN}" pattern="[0-9]*"` : ''} autocomplete="new-password" placeholder="${ph}">`;
+  return modal({
+    title, text, ok,
+    body: field('p1', pin ? `${PIN_LEN}-stelliger PIN` : 'Passwort (mind. 8 Zeichen)') + (twice ? field('p2', 'Noch einmal') : '') + '<p class="serr" hidden></p>',
+    mount(d) {
+      const btn = d.querySelector('.btns .primary'), err = d.querySelector('.serr'), [a, b] = [d.querySelector('[name=p1]'), d.querySelector('[name=p2]')];
+      const check = () => {
+        const v = a.value, bad = pin ? !new RegExp(`^\\d{${PIN_LEN}}$`).test(v) : v.length < 8;
+        const msg = !v ? '' : bad ? (pin ? `Bitte genau ${PIN_LEN} Ziffern.` : 'Mindestens 8 Zeichen.') : twice && b.value && b.value !== v ? 'Die Eingaben stimmen nicht überein.' : '';
+        err.hidden = !msg; err.textContent = msg; btn.disabled = bad || (twice && b.value !== v);
+      };
+      d.addEventListener('input', check); check();
+      setTimeout(() => a.focus(), 80);
+    },
+    collect: d => d.querySelector('[name=p1]').value
+  });
+}
 
 let data = { classes: [], entries: [] };
 // Ab 3.9: Verhalten = nur noch Vermerke. Alte Smiley-Einträge werden einmalig entfernt, Verhalten zählt nicht mehr zur Note.
@@ -229,7 +335,8 @@ if (!ui.type) ui.type = 'ma';
 if (!ui.filter) ui.filter = 'all';
 
 async function save() {
-  try { await DB.set('data', data); }
+  if (locked) return; // gesperrt: nichts überschreiben
+  try { await DB.set('data', dek ? { enc: 1, ...(await Crypt.seal(dek, TE.encode(JSON.stringify(data)))) } : data); }
   catch (e) { toast('Speichern fehlgeschlagen: ' + e.message); }
 }
 const saveUi = () => lsSet('kb.ui', { tab: ui.tab, type: ui.type, filter: ui.filter });
@@ -254,6 +361,27 @@ async function verifyLicense(code) {
     return { error: 'Der Lizenzcode ist ungültig.' };
   }
 }
+
+let pinBuf = '', pinMsg = '';
+function viewPin() {
+  setHeader({});
+  const t = pinTries(), wait = Math.ceil((t.until - Date.now()) / 1000);
+  if (wait > 0) setTimeout(() => { if (locked && !$('#dlg').open) render(); }, 1000); // Countdown
+  return `<div class="lock pinlock">
+      <img class="lock-logo" src="icon-512.png" alt="">
+      <h1>Gesperrt</h1>
+      <p>PIN eingeben, um das Klassenbuch zu öffnen.</p>
+      <div class="pindots${pinMsg ? ' bad' : ''}" aria-label="${pinBuf.length} von ${PIN_LEN} Ziffern">${Array.from({ length: PIN_LEN }, (_, i) => `<i class="${i < pinBuf.length ? 'on' : ''}"></i>`).join('')}</div>
+      <p class="err">${esc(wait > 0 ? `Zu viele Versuche – bitte ${wait} s warten.` : pinMsg)}</p>
+      <div class="keypad">${['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', '⌫'].map(k => k ? `<button class="key${k === '⌫' ? ' del' : ''}" data-a="pinKey" data-v="${k}" aria-label="${k === '⌫' ? 'Löschen' : k}">${k === '⌫' ? ICON.left : k}</button>` : '<span></span>').join('')}</div>
+      <button class="link" data-a="pinForgot">PIN vergessen?</button>
+    </div>`;
+}
+document.addEventListener('keydown', e => {
+  if (!locked || $('#dlg').open) return;
+  if (/^[0-9]$/.test(e.key)) actions.pinKey({ v: e.key });
+  else if (e.key === 'Backspace') actions.pinKey({ v: '⌫' });
+});
 
 function viewLock() {
   setHeader({});
@@ -290,6 +418,7 @@ function render() {
   const [view, a, b] = location.hash.replace(/^#\/?/, '').split('/');
   let key, html;
   if (!license) { key = 'lock'; html = viewLock(); }
+  else if (locked) { key = 'pin'; html = viewPin(); }
   else if (view === 'k' && getClass(a)) { key = 'k' + a; html = viewClass(getClass(a)); }
   else if (view === 's' && getClass(a) && getClass(a).students.find(s => s.id === b)) { key = 's' + b; html = viewStudent(getClass(a), b); }
   else if (view === 'b' && getClass(a)) { key = 'b' + a; html = viewRating(getClass(a)); }
@@ -332,12 +461,9 @@ function viewHome() {
   const visible = [...data.classes].filter(c => !c.hidden).sort(byName);
   const hidden = [...data.classes].filter(c => c.hidden).sort(byName);
   const list = visible.length ? `<div class="card">${visible.map(c => classItem(c)).join('')}</div>`
-    : `<div class="card empty"><h2>Alle Klassen ausgeblendet</h2><p>Unter „Verwalten“ blendest du sie wieder ein.</p></div>`;
+    : `<div class="card empty"><h2>Alle Klassen ausgeblendet</h2><p>Tippe unten auf „ausgeblendet“, um sie wieder einzublenden.</p></div>`;
   return hero + list + `
-    <div class="pill-row">
-      <button class="btn secondary" data-a="addClass">${ICON.plus} Neue Klasse</button>
-      <button class="btn secondary" data-a="goManage">${ICON.list} Verwalten</button>
-    </div>
+    <button class="btn secondary block mt" data-a="addClass">${ICON.plus} Neue Klasse</button>
     ${hidden.length ? `<div class="hidrow"><button class="link" data-a="goManage">${ICON.eyeOff} ${plural(hidden.length, 'Klasse', 'Klassen')} ausgeblendet</button></div>` : ''}`;
 }
 
@@ -601,15 +727,18 @@ document.addEventListener('pointermove', chartHover);
 document.addEventListener('pointerdown', chartHover);
 const dash = '<span class="chev">–</span>';
 
+// + ~ − als Zähler – nur, was vorkommt
+const pmCounts = x => [['+', 'g-t', '+'], ['~', 'm-t', '~'], ['-', 'b-t', '−']].filter(([k]) => x[k]).map(([k, c, l]) => `<span class="${c}">${l}${x[k]}</span>`).join('') || dash;
 function metricHTML(c, st, k) {
   if (k === 'hu') { const T = st.hu.y + st.hu.n; return T ? `${st.hu.y}/${T}` : dash; }
-  if (k === 'an') return st.abs.A + st.abs.AN ? `${st.abs.A ? `<span class="b-t">${st.abs.A}× abw.</span>` : ''}${st.abs.AN ? `<span>${st.abs.AN}× anw.</span>` : ''}` : dash;
+  if (k === 'an') return st.abs.A ? `<span class="b-t">${st.abs.A}× abw.</span>` : dash;
   if (k === 'vh') return st.vh.n ? `<span class="b-t">${st.vh.n}×</span>` : dash;
   const kind = kindOf(c, k);
   if (kind === 'num') { const x = st.nums[k]; return x.best == null ? dash : esc(withUnit(x.best, typeOf(c, k).unit)); }
   if (kind === 'text') { const x = st.texts[k]; return x.n ? x.n + '×' : dash; }
   if (scaleOf(c, k) === 'pct' && st.pct[k] != null) return `<span class="${gradeCls(st.avg[k])}">${Math.round(st.pct[k])} %</span>`;
-  if (scaleOf(c, k) === 'pm') { const x = st.cnt[k]; return `<span class="g-t">+${x['+']}</span><span class="m-t">~${x['~']}</span><span class="b-t">−${x['-']}</span>`; }
+  if (st.avg[k] == null) return dash;
+  if (scaleOf(c, k) === 'pm') return pmCounts(st.cnt[k]);
   return st.avg[k] == null ? dash : `<span class="${gradeCls(st.avg[k])}">${fmtNum(st.avg[k])}</span>`;
 }
 
@@ -621,10 +750,11 @@ function viewOverview(c) {
       ${(() => { const tr = trendOf(c, s.id); return `<div class="otrend">
         ${st.total == null ? '<span class="tot">Ø –</span>' : `<span class="tot ${gradeCls(st.total)}">Ø ${fmtNum(st.total)}${trendIcon(tr)}</span>`}
         ${sparkHTML(tr)}</div>`; })()}
-      <div class="metrics">${visKeys(c).map(k => `<span class="met"><span class="ml">${esc(shortOf(c, k))}</span><span class="mv">${metricHTML(c, st, k)}</span></span>`).join('')}</div></a>`;
+      ${(() => { const m = visKeys(c).map(k => [k, metricHTML(c, st, k)]).filter(([, v]) => v !== dash);
+        return m.length ? `<div class="metrics">${m.map(([k, v]) => `<span class="met"><span class="ml">${esc(shortOf(c, k))}</span><span class="mv">${v}</span></span>`).join('')}</div>` : ''; })()}</a>`;
   }).join('');
   return `<div class="card">${rows}</div>
-    <p class="legend">Ø = gewichtete Gesamtnote (<a class="inl" href="#/b/${c.id}">${esc(weightSummary(c))}</a>).${visKeys(c).includes('hu') ? ' HÜ zeigt „gebracht / gesamt“.' : ''}${visKeys(c).some(k => kindOf(c, k) === 'num') ? ' Messwerte zeigen den Bestwert.' : ''}</p>
+    <p class="legend">Ø = Gesamtnote · ${esc(weightSummary(c))}</p>
     <button class="btn secondary block" data-a="exportMenu">${ICON.download} Exportieren</button>`;
 }
 
@@ -683,28 +813,21 @@ function viewRating(c) {
   const noteKeys = visKeys(c).filter(k => kindOf(c, k) === 'note');
   const wKeys = visKeys(c).filter(k => weighable(c, k));
   const sum = wKeys.reduce((a, k) => a + (cf.weight[k] || 0), 0);
-  const scaleRows = noteKeys.map(k => { const t = typeOf(c, k), sc = scaleOf(c, k);
-    return `<button class="lrow" data-a="scaleEdit" data-t="${k}"><span class="licon">${ICON[t.icon]}</span><span class="grow">${esc(t.label)}<span class="muted block">${esc(scaleDesc(c, k))}</span></span>${ICON.chev}</button>`; }).join('');
-  const wRows = wKeys.map(k => {
-    const t = typeOf(c, k), w = cf.weight[k] || 0;
-    return `<div class="lrow static"><span class="licon">${ICON[t.icon]}</span><span class="grow">${esc(t.label)}</span>
+  const rows = wKeys.map(k => {
+    const t = typeOf(c, k), w = cf.weight[k] || 0, isNote = noteKeys.includes(k);
+    const name = `${esc(t.label)}<span class="muted block">${isNote ? esc(scaleShort(c, k)) + ' ›' : 'gebracht = 1 · nicht = 5'}</span>`;
+    return `<div class="lrow static wrow"><span class="licon">${ICON[t.icon]}</span>
+      ${isNote ? `<button class="grow wname" data-a="scaleEdit" data-t="${k}" aria-label="${esc(t.label)}: Notenskala ändern">${name}</button>` : `<span class="grow">${name}</span>`}
       <div class="stepper"><button data-a="wStep" data-t="${k}" data-v="-5" aria-label="${esc(t.label)} weniger">−</button><span class="num">${w} %</span><button data-a="wStep" data-t="${k}" data-v="5" aria-label="${esc(t.label)} mehr">+</button></div></div>`;
   }).join('');
-  const sumLine = sum === 100 ? '<span class="g-t">Summe: 100 %</span>'
+  const sumLine = sum === 100 ? '<span class="g-t">Summe 100 %</span>'
     : sum === 0 ? 'Alle Anteile stehen auf 0 % – es wird keine Gesamtnote berechnet.'
-      : `Summe: ${sum} % – die Anteile werden automatisch auf 100 % umgerechnet (${esc(weightSummary(c))}).`;
-  return `<div class="hero"><div class="eyebrow">${esc(c.name)}</div><h1>Bewertung</h1></div>
-    ${noteKeys.length ? `<div class="section">Notenskala</div>
-    <div class="card">${scaleRows}</div>
-    <p class="fine">Tippe auf eine Kategorie und wähle Note 1–5, + ~ −, Prozent (0–100 mit eigenen Notengrenzen) oder eine eigene Skala. Bereits eingetragene Werte bleiben erhalten und zählen weiter mit ihrem Notenwert.</p>` : ''}
-    <div class="section">Anteil an der Gesamtnote</div>
-    <div class="card">${wRows || '<div class="nothing">Keine benotbare Kategorie sichtbar</div>'}</div>
-    <p class="fine">${sumLine}</p>
-    <p class="fine">So entsteht die Gesamtnote: Je Kategorie wird ein Notenschnitt gebildet und mit ihrem Anteil gewichtet. Kategorien mit 0 % zählen nicht.<br>Umrechnung: + = 1, ~ = 3, − = 5 · Prozent nach deinen Notengrenzen · eigene Stufen mit dem Wert, den du festlegst · Hausübung gebracht = 1, nicht gebracht = 5 · Verhaltens-Vermerke, Messwerte und Notizen zählen nicht zur Gesamtnote.<br>Einzelne Noten kannst du bei der jeweiligen Schülerin oder dem jeweiligen Schüler stärker oder schwächer zählen lassen: einfach auf die Note tippen.</p>
-    <div class="stack">
-      <a class="btn secondary block" href="#/kat/${c.id}">${ICON.pen} Kategorien bearbeiten</a>
-      ${data.classes.length > 1 ? `<button class="btn secondary block" data-a="cfgAll">Für alle Klassen übernehmen</button>` : ''}
-    </div>`;
+      : `Summe: ${sum} % – wird automatisch auf 100 % umgerechnet.`;
+  return `<div class="hero"><div class="eyebrow">${esc(c.name)}</div><h1>Bewertung</h1>
+      <div class="sub">Notenskala und Anteil an der Gesamtnote je Kategorie.</div></div>
+    <div class="card">${rows || '<div class="nothing">Keine benotbare Kategorie sichtbar</div>'}</div>
+    <p class="fine">${sumLine} · Kategorie antippen ändert die Notenskala (1–5, + ~ −, Prozent oder eigene). Je Kategorie wird ein Schnitt gebildet und mit ihrem Anteil gewichtet – 0 % zählt nicht.</p>
+    ${data.classes.length > 1 ? `<button class="btn secondary block mt" data-a="cfgAll">Für alle Klassen übernehmen</button>` : ''}`;
 }
 
 /* ---------- Kategorien je Klasse ---------- */
@@ -716,7 +839,7 @@ function viewCats(c) {
     if (k === 'hu') return 'gebracht / nicht gebracht';
     if (k === 'vh') return 'Vermerk mit Anmerkung · zählt nicht zur Note';
     if (k === 'an') return 'anwesend / abwesend · zählt nicht zur Note';
-    if (kind === 'note') return scaleDesc(c, k);
+    if (kind === 'note') return scaleShort(c, k);
     if (kind === 'num') return 'Messwert' + (t.unit ? ' in ' + t.unit : '') + (t.high ? ' · höher ist besser' : ' · niedriger ist besser');
     return 'Notiz';
   };
@@ -737,8 +860,7 @@ function viewCats(c) {
     <div class="section">Eigene Kategorien</div>
     ${custom.length ? `<div class="card">${custom.map(row).join('')}</div>` : ''}
     <button class="btn primary block${custom.length ? ' mt' : ''}" data-a="catAdd">${ICON.plus} Eigene Kategorie</button>
-    <p class="fine">Tippe auf einen Namen, um die Kategorie umzubenennen oder anzupassen. Mit dem Auge blendest du eine Kategorie aus. Ihre Einträge bleiben erhalten. Eigene Kategorien kannst du auch löschen, dann werden ihre Einträge mit entfernt.</p>
-    <p class="fine">Beispiele: „Weitsprung“ als Messwert in m, „60-m-Lauf“ in s (niedriger ist besser), „Referat“ als Note, „Beobachtung“ als Notiz.</p>`;
+    <p class="fine">Namen antippen zum Umbenennen, Auge zum Ausblenden (Einträge bleiben erhalten). Die Notenskala stellst du unter „Bewertung“ ein.</p>`;
 }
 
 /* ---------- Notenskala-Editor (Prozent-Grenzen, eigene Stufen) ---------- */
@@ -809,7 +931,6 @@ function applyScale(c, k, st) {
 function catEditSheet(c, k) {
   const t = typeOf(c, k), kind = kindOf(c, k), x = customOf(c, k);
   let high = t.high !== false;
-  const sst = kind === 'note' ? scaleState(c, k) : null;
   const opts = () => `
     ${kind === 'num' ? `<div class="seg kindseg"><button type="button" data-high="1" class="${high ? 'on' : ''}">Höher ist besser</button><button type="button" data-high="0" class="${high ? '' : 'on'}">Niedriger ist besser</button></div>` : ''}`;
   return modal({
@@ -817,23 +938,21 @@ function catEditSheet(c, k) {
     text: t.custom ? KINDS[kind].label : `Standardkategorie „${TYPES[k].label}“`,
     body: `<input name="label" value="${esc(t.label)}" placeholder="${esc(t.custom ? 'Name' : TYPES[k].label)}" autocomplete="off" autocapitalize="sentences">
       ${kind === 'num' ? `<input name="unit" value="${esc(t.unit || '')}" placeholder="Einheit, z. B. m, s, cm, Punkte" autocomplete="off">` : ''}
-      <div class="kindbox">${opts()}</div>
-      ${kind === 'note' ? '<div class="scalebox"></div>' : ''}
+      ${kind === 'num' ? `<div class="kindbox">${opts()}</div>` : ''}
       ${!t.custom && t.renamed ? `<button type="button" class="link small left" data-reset="1">Ursprünglichen Namen „${esc(TYPES[k].label)}“ wiederherstellen</button>` : ''}`,
     mount(d) {
       const box = d.querySelector('.kindbox');
-      box.addEventListener('click', e => {
+      if (box) box.addEventListener('click', e => {
         const b = e.target.closest('button'); if (!b) return;
         if (b.dataset.high) high = b.dataset.high === '1';
         box.innerHTML = opts();
       });
-      if (sst) bindScale(d.querySelector('.scalebox'), sst);
       const r = d.querySelector('[data-reset]');
       if (r) r.addEventListener('click', () => { d.querySelector('[name=label]').value = TYPES[k].label; r.remove(); });
     },
     collect(d) {
       const u = d.querySelector('[name=unit]');
-      return { label: d.querySelector('[name=label]').value.trim(), sc: sst, high, unit: u ? u.value.trim() : undefined };
+      return { label: d.querySelector('[name=label]').value.trim(), high, unit: u ? u.value.trim() : undefined };
     }
   });
 }
@@ -887,7 +1006,7 @@ function viewStudent(c, sid) {
       sub = x.n ? `zuletzt: ${x.last}` : 'noch keine';
     } else if (k === 'an') {
       val = st.abs.A ? `<span class="b-t">${st.abs.A}</span>` : st.abs.AN ? '0' : '–';
-      sub = st.abs.A + st.abs.AN ? `${st.abs.A ? 'Tage abwesend' : 'nie abwesend'} · ${st.abs.AN}× anwesend` : 'noch nichts eingetragen';
+      sub = st.abs.A + st.abs.AN ? (st.abs.A ? 'Tage abwesend' : 'nie abwesend') : 'noch nichts eingetragen';
     } else if (k === 'hu') {
       const T = st.hu.y + st.hu.n;
       val = T ? `${st.hu.y}/${T}` : '–';
@@ -900,7 +1019,7 @@ function viewStudent(c, sid) {
       sub = `entspricht Ø ${fmtNum(a)} · ${plural(st.list[k].length, 'Eintrag', 'Einträge')}`;
     } else if (sc === 'pm') {
       const x = st.cnt[k];
-      val = `<span class="g-t">+${x['+']}</span><span class="m-t">~${x['~']}</span><span class="b-t">−${x['-']}</span>`;
+      val = pmCounts(x);
       sub = a == null ? 'noch keine' : `entspricht Ø ${fmtNum(a)}`;
     } else {
       val = a == null ? '–' : `<span class="${gradeCls(a)}">${fmtNum(a)}</span>`;
@@ -915,7 +1034,7 @@ function viewStudent(c, sid) {
   const filt = ui.filter === 'all' || visKeys(c).includes(ui.filter) ? ui.filter : 'all';
   const chips = [['all', 'Alle', null], ...visKeys(c).map(k => [k, typeOf(c, k).label, typeOf(c, k).icon])].map(([k, l, ic]) =>
     `<button class="cat ${filt === k ? 'on' : ''}" data-a="filter" data-v="${k}">${ic ? ICON[ic] : ''}${esc(l)}</button>`).join('');
-  const es = entriesOf(c.id, sid).filter(e => typeOf(c, e.t) && (filt === 'all' || e.t === filt))
+  const es = entriesOf(c.id, sid).filter(e => typeOf(c, e.t) && (filt === 'all' ? e.v !== 'AN' : e.t === filt))
     .sort((a, b) => b.d.localeCompare(a.d) || a.t.localeCompare(b.t));
   let list = '';
   if (!es.length) list = `<div class="nothing">Keine Einträge</div>`;
@@ -977,7 +1096,19 @@ function viewSettings() {
       <button class="lrow" data-a="exportBackup"><span class="licon">${ICON.download}</span><span class="grow">Sicherung exportieren</span>${ICON.chev}</button>
       <button class="lrow" data-a="importBackup"><span class="licon">${ICON.upload}</span><span class="grow">Sicherung importieren</span>${ICON.chev}</button>
     </div>
-    <p class="fine">Letzte Sicherung: <b>${esc(backupWhen())}</b> · Erinnerung zweimal pro Woche<br>Alle Daten liegen nur auf diesem Gerät – speichere die Sicherung z. B. in der Dateien-App, in iCloud Drive oder auf einem USB-Stick.</p>
+    <p class="fine">Letzte Sicherung: <b>${esc(backupWhen())}</b> · Erinnerung zweimal pro Woche<br>Sicherungen sind mit deinem Sicherungspasswort verschlüsselt.${hasBkPw ? ' <button class="link inl" data-a="backupPw">Passwort ändern</button>' : ''}</p>
+
+    <div class="section">App-Sperre</div>
+    ${lockCfg ? `<div class="card">
+      <div class="lrow static"><span class="licon">${ICON.lock}</span><span class="grow nowrap">Auto-Sperre</span>
+        <div class="mini-seg compact">${[1, 5, 15].map(m => `<button class="${(lockCfg.after ?? 1) === m ? 'on' : ''}" data-a="pinAfter" data-v="${m}">${m} min</button>`).join('')}</div></div>
+      <button class="lrow" data-a="lockNow"><span class="licon">${ICON.lock}</span><span class="grow">Jetzt sperren</span>${ICON.chev}</button>
+      <button class="lrow" data-a="pinChange"><span class="licon">${ICON.key}</span><span class="grow">PIN ändern</span>${ICON.chev}</button>
+      <button class="lrow danger" data-a="pinOff"><span class="licon">${ICON.lock}</span><span class="grow">PIN-Sperre ausschalten</span></button>
+    </div>
+    <p class="fine">Die Daten sind auf diesem Gerät verschlüsselt. Nach dem Öffnen und wenn die App länger im Hintergrund war, fragt sie nach dem PIN.</p>`
+    : `<div class="card"><button class="lrow" data-a="pinOn"><span class="licon">${ICON.lock}</span><span class="grow">PIN-Sperre einschalten</span>${ICON.chev}</button></div>
+    <p class="fine">Empfohlen: Mit PIN werden alle Daten auf diesem Gerät verschlüsselt und nur nach Eingabe des PINs angezeigt.</p>`}
 
     <div class="section">Lizenz</div>
     <div class="card"><div class="lrow static"><span class="licon">${ICON.key}</span><span class="grow">${esc(license.info.n)}</span><span class="muted">${esc(exp)}</span></div></div>
@@ -996,7 +1127,7 @@ let backup = { last: 0, snooze: 0 }, backupAsking = false;
 const isoOf = ms => { const d = new Date(ms); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const backupWhen = () => backup.last ? relDay(isoOf(backup.last)) : 'noch nie';
 async function backupCheck() {
-  if (!license || backupAsking || $('#dlg').open || !data.entries.length) return;
+  if (!license || locked || backupAsking || $('#dlg').open || !data.entries.length) return;
   const now = Date.now();
   if (backup.last && now - backup.last < BACKUP_EVERY) return;
   if (backup.snooze && now < backup.snooze) return;
@@ -1750,6 +1881,54 @@ const actions = {
     await loadData(); render(); toast('Freigeschaltet für ' + res.info.n);
   },
   goSettings() { location.hash = '#/einstellungen'; },
+  async pinKey(d) {
+    if (!locked) return;
+    const t = pinTries(); if (t.until > Date.now()) return render();
+    if (d.v === '⌫') pinBuf = pinBuf.slice(0, -1);
+    else if (pinBuf.length < PIN_LEN) pinBuf += d.v;
+    pinMsg = ''; render();
+    if (pinBuf.length < PIN_LEN) return;
+    const pin = pinBuf;
+    if (await tryUnlock(pin)) {
+      pinBuf = ''; lsSet('kb.pinTries', { n: 0, until: 0 });
+      render(); setTimeout(backupCheck, 800);
+    } else {
+      const n = t.n + 1;
+      lsSet('kb.pinTries', { n, until: n >= 5 ? Date.now() + 30000 * 2 ** (n - 5) : 0 });
+      pinBuf = ''; pinMsg = 'Falscher PIN'; render(); haptic();
+    }
+  },
+  async pinForgot() {
+    if (!await modal({ title: 'PIN vergessen?', text: 'Ohne PIN lassen sich die verschlüsselten Daten nicht mehr öffnen – auch nicht von mir als Entwickler.\n\nDu kannst alles löschen, neu beginnen und danach deine letzte Sicherung importieren.', ok: 'Alles löschen und neu beginnen', danger: true })) return;
+    if (!await modal({ title: 'Wirklich alles löschen?', text: 'Alle Klassen und Einträge auf diesem Gerät werden endgültig gelöscht.', ok: 'Endgültig löschen', danger: true })) return;
+    await DB.del('data'); await DB.del('lock'); await DB.del('bkkey');
+    lockCfg = null; dek = null; locked = false; hasBkPw = false; data = { classes: [], entries: [] }; pinBuf = ''; lsSet('kb.pinTries', { n: 0, until: 0 });
+    location.hash = '#/'; render(); toast('Gelöscht – importiere jetzt deine Sicherung');
+  },
+  async pinOn() {
+    const pin = await secretSheet({ title: 'PIN festlegen', text: 'Mit PIN werden alle Daten auf diesem Gerät verschlüsselt. Merke dir den PIN gut – ohne ihn kommst du nicht mehr an die Daten.', pin: true, twice: true, ok: 'PIN-Sperre einschalten' });
+    if (!pin) return;
+    await setPin(pin); render(); toast('PIN-Sperre ist eingeschaltet');
+  },
+  async pinChange() {
+    const pin = await secretSheet({ title: 'Neuer PIN', pin: true, twice: true, ok: 'PIN ändern' });
+    if (!pin) return;
+    await setPin(pin); toast('PIN geändert');
+  },
+  async pinOff() {
+    const pin = await secretSheet({ title: 'PIN-Sperre ausschalten', text: 'Gib zur Bestätigung deinen PIN ein. Danach werden die Daten unverschlüsselt gespeichert.', pin: true, ok: 'Ausschalten' });
+    if (!pin) return;
+    const keep = data;
+    if (!await tryUnlock(pin)) { data = keep; return toast('Falscher PIN'); }
+    await removePin(); render(); toast('PIN-Sperre ausgeschaltet');
+  },
+  async pinAfter(d) { if (!lockCfg) return; lockCfg.after = +d.v; await DB.set('lock', lockCfg); render(); },
+  lockNow() { lockNow(); },
+  async backupPw() {
+    const pw = await secretSheet({ title: 'Neues Sicherungspasswort', text: 'Gilt für alle künftigen Sicherungen. Ältere Sicherungen öffnest du weiter mit dem damaligen Passwort.', twice: true, ok: 'Speichern' });
+    if (!pw) return;
+    await setBackupPassword(pw); render(); toast('Sicherungspasswort geändert');
+  },
 
   goCompose() { location.hash = '#/neu'; },
   goManage() { location.hash = '#/verwalten'; },
@@ -1784,19 +1963,17 @@ const actions = {
     const c = currentClass(); if (!c) return;
     const k = await modal({
       title: c.name, options: [
-        ['cfg', 'Bewertung & Gewichtung'], ['cat', 'Kategorien'], ['stud', 'Schüler:innen hinzufügen'], ['exp', 'Exportieren'],
+        ['cfg', 'Bewertung & Gewichtung'], ['stud', 'Schüler:innen hinzufügen'],
         ['ren', 'Umbenennen'], ['hide', c.hidden ? 'Wieder einblenden' : 'Ausblenden'], ['del', 'Klasse löschen', true]
       ], cancel: 'Schließen'
     });
     if (k === 'cfg') location.hash = '#/b/' + c.id;
-    if (k === 'cat') location.hash = '#/kat/' + c.id;
     if (k === 'stud') {
       const o = await modal({ title: 'Schüler:innen hinzufügen', text: c.name, options: [['imp', 'Liste importieren (WebUntis, Excel, CSV)'], ['add', 'Namen eintippen'], ...(data.classes.length > 1 ? [['mix', 'Aus anderen Klassen übernehmen']] : [])] });
       if (o === 'imp') actions.importStudents();
       if (o === 'add') actions.addStudents();
       if (o === 'mix') location.hash = '#/neu/' + c.id;
     }
-    if (k === 'exp') actions.exportMenu();
     if (k === 'hide') { c.hidden = !c.hidden; if (!c.hidden) delete c.hidden; await save(); if (c.hidden) { location.hash = '#/'; toast(`„${c.name}“ ausgeblendet`); } else { render(); toast(`„${c.name}“ wieder eingeblendet`); } }
     if (k === 'ren') {
       const n = (await modal({ title: 'Klasse umbenennen', input: true, value: c.name, ok: 'Speichern' }) || '').trim();
@@ -1976,7 +2153,6 @@ const actions = {
       if (x.kind === 'num') { x.unit = r.unit || ''; x.high = r.high; }
     } else if (!r.label || r.label === TYPES[k].label) delete cf.cats.labels[k];
     else cf.cats.labels[k] = r.label;
-    if (kindOf(c, k) === 'note' && r.sc) applyScale(c, k, r.sc);
     await save(); render(); toast('Gespeichert');
   },
   async catAdd() {
@@ -2089,9 +2265,8 @@ const actions = {
 
   async studentMenu() {
     const c = currentClass(); const s = c && c.students.find(x => x.id === currentStudentId()); if (!s) return;
-    const k = await modal({ title: s.name, options: [...(visKeys(c).includes('vh') ? [['vh', `${typeOf(c, 'vh').label}: Vermerk notieren`]] : []), ['exp', 'Trend exportieren'], ['ren', 'Umbenennen'], ['del', 'Aus der Klasse entfernen', true]], cancel: 'Schließen' });
+    const k = await modal({ title: s.name, options: [...(visKeys(c).includes('vh') ? [['vh', `${typeOf(c, 'vh').label}: Vermerk notieren`]] : []), ['ren', 'Umbenennen'], ['del', 'Aus der Klasse entfernen', true]], cancel: 'Schließen' });
     if (k === 'vh') return actions.vhStudent();
-    if (k === 'exp') return actions.studentExport();
     if (k === 'ren') {
       const n = (await modal({ title: 'Umbenennen', input: true, value: s.name, ok: 'Speichern' }) || '').trim();
       if (n) { s.name = n; await save(); render(); }
@@ -2197,7 +2372,16 @@ const actions = {
     saveFile(`Einträge_${safeName(c.name)}_${today()}.csv`, 'text/csv', toCSV(rows));
   },
   async exportBackup() {
-    const out = { app: 'klassenbuch', format: 1, exportiert: new Date().toISOString(), data };
+    let k = await loadBackupKey();
+    if (!k) {
+      const pw = await secretSheet({ title: 'Sicherungspasswort festlegen', text: 'Sicherungen werden verschlüsselt. Mit diesem Passwort öffnest du sie später wieder – z. B. auf einem neuen Handy. Bitte gut merken oder notieren.', twice: true, ok: 'Festlegen und sichern' });
+      if (!pw) return;
+      await setBackupPassword(pw); k = await loadBackupKey();
+    }
+    const key = await crypto.subtle.importKey('raw', k.raw, 'AES-GCM', false, ['encrypt']);
+    const box = await Crypt.seal(key, TE.encode(JSON.stringify(data)));
+    const out = { app: 'klassenbuch', format: 2, exportiert: new Date().toISOString(),
+      enc: { alg: 'AES-256-GCM', kdf: 'PBKDF2-SHA-256', iter: k.iter, salt: toB64(k.salt), iv: toB64(box.iv), ct: toB64(box.ct) } };
     if (!await saveFile(`Klassenbuch-Sicherung_${today()}.json`, 'application/json', JSON.stringify(out))) return;
     backup.last = Date.now(); backup.snooze = 0;
     await DB.set('backup', backup).catch(() => { });
@@ -2208,12 +2392,17 @@ const actions = {
     // Keine Sicherung, sondern z. B. eine Schülerliste? Dann als Liste importieren.
     const head = new Uint8Array(await f.slice(0, 4).arrayBuffer());
     if (head[0] !== 0x7B && !/\.json$/i.test(f.name)) return actions.importAny(f);
-    let inc;
-    try {
-      const j = JSON.parse(await readText(f));
-      inc = j && j.app === 'klassenbuch' ? j.data : null;
-      if (!inc || !Array.isArray(inc.classes) || !Array.isArray(inc.entries)) throw 0;
-    } catch { return toast('Das ist keine gültige Klassenbuch-Sicherung'); }
+    let inc, j;
+    try { j = JSON.parse(await readText(f)); if (!j || j.app !== 'klassenbuch') throw 0; } catch { return toast('Das ist keine gültige Klassenbuch-Sicherung'); }
+    if (j.enc) {
+      const pw = await secretSheet({ title: 'Sicherung öffnen', text: 'Diese Sicherung ist verschlüsselt. Gib das Sicherungspasswort ein.', ok: 'Öffnen' });
+      if (!pw) return;
+      try {
+        const key = await crypto.subtle.importKey('raw', await Crypt.rawKey(pw, fromB64(j.enc.salt), j.enc.iter), 'AES-GCM', false, ['decrypt']);
+        inc = JSON.parse(TD.decode(await Crypt.open(key, { iv: fromB64(j.enc.iv), ct: fromB64(j.enc.ct) })));
+      } catch { return toast('Falsches Passwort'); }
+    } else inc = j.data;
+    if (!inc || !Array.isArray(inc.classes) || !Array.isArray(inc.entries)) return toast('Das ist keine gültige Klassenbuch-Sicherung');
     const k = await modal({
       title: 'Sicherung importieren', text: `${plural(inc.classes.length, 'Klasse', 'Klassen')}, ${plural(inc.entries.length, 'Eintrag', 'Einträge')}`,
       options: [['merge', 'Ergänzen (vorhandene Daten behalten)'], ['replace', 'Alles ersetzen', true]]
@@ -2275,7 +2464,12 @@ async function start() {
   const code = (await DB.get('license').catch(() => null)) || lsGet('kb.license', null);
   if (code) {
     const res = await verifyLicense(code);
-    if (!res.error) { license = res; await loadData(); }
+    if (!res.error) {
+      license = res;
+      lockCfg = await DB.get('lock').catch(() => null) || null;
+      hasBkPw = !!(await DB.get('bkkey').catch(() => null));
+      if (lockCfg) locked = true; else await loadData();
+    }
     else lockMsg = res.error;
   }
   backup = Object.assign({ last: 0, snooze: 0 }, await DB.get('backup').catch(() => null));
