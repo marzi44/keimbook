@@ -8,7 +8,7 @@ const PUBLIC_KEY = {
   x: 'kHkzCWyGjuxGxGf_3AMH2F_MKEWEjH1hfCnBf7K1Imo',
   y: 'Fv556fMFzralLJTUqYxNxI68b9Fd4ctkLzgn07BzKj0'
 };
-const APP_VERSION = '4.1';
+const APP_VERSION = '4.2';
 
 const TYPES = {
   ma: { label: 'Mitarbeit', long: 'Mitarbeit', icon: 'spark', vals: [['+', '+', 'g'], ['~', '~', 'm'], ['-', '−', 'b']] },
@@ -301,6 +301,7 @@ function render() {
     if (location.hash && location.hash !== '#/') history.replaceState(null, '', '#/');
     key = 'home'; html = viewHome();
   }
+  v.dataset.v = key === 'home' || key === 'lock' ? key : view; // Seitentyp – auf dem Tablet bekommen Klasse und Schüler:in mehr Platz
   v.innerHTML = html;
   if (key !== lastKey) { v.classList.remove('enter'); void v.offsetWidth; v.classList.add('enter'); lastKey = key; }
   // Aktive Kategorie in der Leiste sichtbar halten

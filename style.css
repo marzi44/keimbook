@@ -656,3 +656,32 @@ a.inl { color: inherit; text-decoration: underline; text-decoration-color: var(-
 .scalebox { display: grid; gap: 12px; }
 .scalebox[hidden] { display: none; }
 .sheet .scalebox .stext { margin: 2px 0 0; font-size: 14px; }
+
+/* ---------- Tablet (iPad, Android-Tablets) – Hoch- und Querformat ---------- */
+main { padding-left: max(16px, env(safe-area-inset-left), calc((100% - 600px) / 2)); padding-right: max(16px, env(safe-area-inset-right), calc((100% - 600px) / 2)); }
+@media (min-width: 760px) and (min-height: 560px) {
+  main { padding: 0 max(28px, env(safe-area-inset-right)) calc(48px + env(safe-area-inset-bottom)) max(28px, env(safe-area-inset-left)); }
+  #view { max-width: 680px; margin: 0 auto; }
+  /* Klasse und Schüler:in nutzen die Breite */
+  #view[data-v="k"], #view[data-v="s"] { max-width: 1040px; }
+  .top { padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right)); }
+  .top-title { max-width: 40vw; }
+  .hero h1, .phero h1 { font-size: 36px; }
+  .phero h1 { font-size: 30px; }
+
+  /* Eintragen und Übersicht: zwei Spalten */
+  .card:has(> .srow), .card:has(> .orow) { display: grid; grid-template-columns: 1fr 1fr; }
+  .card:has(> .srow) > *, .card:has(> .orow) > * { border-top: 0; }
+  .card:has(> .srow) > :nth-child(n + 3), .card:has(> .orow) > :nth-child(n + 3) { border-top: 1px solid var(--line); }
+  .card:has(> .srow) > :nth-child(2n), .card:has(> .orow) > :nth-child(2n) { border-left: 1px solid var(--line); }
+  .datebar { max-width: 560px; margin-left: auto; margin-right: auto; }
+
+  /* Schüler:in: drei Kacheln nebeneinander, Gesamtnote über die volle Breite */
+  .tiles { grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .tile .val { font-size: 26px; }
+  #view[data-v="s"] .card { max-width: 1040px; }
+
+  /* Fenster in der Mitte statt von unten */
+  dialog { max-width: 520px; }
+  #toast { bottom: calc(32px + env(safe-area-inset-bottom)); }
+}
