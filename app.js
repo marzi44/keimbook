@@ -8,7 +8,7 @@ const PUBLIC_KEY = {
   x: 'kHkzCWyGjuxGxGf_3AMH2F_MKEWEjH1hfCnBf7K1Imo',
   y: 'Fv556fMFzralLJTUqYxNxI68b9Fd4ctkLzgn07BzKj0'
 };
-const APP_VERSION = '4.6';
+const APP_VERSION = '4.7';
 
 const TYPES = {
   ma: { label: 'Mitarbeit', long: 'Mitarbeit', icon: 'spark', vals: [['+', '+', 'g'], ['~', '~', 'm'], ['-', '−', 'b']] },
@@ -33,9 +33,12 @@ const glyph = (l, size = 17) => SYM[l]
   ? `<svg class="sym" viewBox="0 0 24 24" width="${size}" height="${size}" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">${SYM[l]}</svg>`
   : `<span class="digit">${l}</span>`;
 // Wert → [Wert, Anzeige, Farbklasse]. Kennt Note 1–5, + ~ −, Prozent (%73) und eigene Stufen (o:id).
+// „passiv“: anwesend, aber keine Leistung – wird vermerkt, zählt nicht zur Note
+const PAS = 'PA';
 const gcls = g => g == null ? 'm' : g < 2.5 ? 'g' : g <= 4 ? 'm' : 'b';
 function valInfo(c, t, v) {
   v = String(v);
+  if (v === PAS) return [PAS, 'passiv', 'm'];
   if (v[0] === '%') { const p = parseFloat(v.slice(1)); return [v, fmtVal(p) + ' %', gcls(pctGrade(c, t, p))]; }
   if (v.startsWith('o:')) { const l = ownLevels(c, t).find(x => 'o:' + x.id === v); return l ? [v, l.l, gcls(l.g)] : [v, '?', 'm']; }
   return ((SCALABLE.includes(t) || !TYPES[t]) ? [...SCALES.grade, ...SCALES.pm] : TYPES[t].vals).find(x => x[0] === v) || [v, v, 'm'];
@@ -547,6 +550,7 @@ function viewEntry(c) {
 // Abwesend an diesem Tag? Dann gibt es dort nichts zu benoten.
 const isAbsentOn = (c, sid, d) => data.entries.some(e => e.c === c.id && e.s === sid && e.d === d && e.t === 'an' && e.v === 'A');
 
+const pasBtn = (s, cur) => `<button class="v pas${cur && cur.v === PAS ? ' on' : ''}" data-a="mark" data-s="${s.id}" data-v="${PAS}" aria-label="passiv – anwesend, aber keine Leistung" title="passiv">P</button>`;
 function rowHTML(c, s) {
   const type = curType(c), t = typeOf(c, type), kind = kindOf(c, type);
   if (type !== 'an' && isAbsentOn(c, s.id, ui.date)) {
@@ -563,7 +567,7 @@ function rowHTML(c, s) {
     const cur = todays[0], isP = cur && String(cur.v)[0] === '%';
     if (cur && cur.n) meta = `<span class="snote">${ICON.speech.replace('width="18" height="18"', 'width="12" height="12"')}${esc(cur.n)}</span>`;
     btns = `<label class="valbox num pct"><input class="valin" data-s="${s.id}" inputmode="decimal" enterkeyhint="next" autocomplete="off"
-      value="${isP ? esc(fmtVal(cur.v.slice(1))) : ''}" placeholder="–" aria-label="${esc(t.label + ' ' + s.name + ' in Prozent')}"><span class="unit">%</span></label>`;
+      value="${isP ? esc(fmtVal(cur.v.slice(1))) : ''}" placeholder="–" aria-label="${esc(t.label + ' ' + s.name + ' in Prozent')}"><span class="unit">%</span></label>` + pasBtn(s, cur);
   } else if (kind === 'num' || kind === 'text') {
     const cur = todays[0];
     btns = `<label class="valbox ${kind}"><input class="valin" data-s="${s.id}" ${kind === 'num' ? 'inputmode="decimal"' : 'autocapitalize="sentences"'} enterkeyhint="next" autocomplete="off"
@@ -575,8 +579,7 @@ function rowHTML(c, s) {
     const sc = scaleOf(c, type), curV = cur ? (sc === 'pm' ? toPm(cur.v) : sc === 'grade' ? ({ '+': '1', '~': '3', '-': '5' }[cur.v] || cur.v) : cur.v) : null;
     const vals = valsFor(c, type);
     btns = vals.map(([v, label, vc]) =>
-      `<button class="v ${vc} ${curV === v ? 'on' : ''}${label.length > 1 && !SYM[label] ? ' wide' : ''}" data-a="mark" data-s="${s.id}" data-v="${v}" aria-label="${esc(t.label + ' ' + label)}">${glyph(label)}</button>`).join('')
-;
+      `<button class="v ${vc} ${curV === v ? 'on' : ''}${label.length > 1 && !SYM[label] ? ' wide' : ''}" data-a="mark" data-s="${s.id}" data-v="${v}" aria-label="${esc(t.label + ' ' + label)}">${glyph(label)}</button>`).join('') + pasBtn(s, cur);
     cls = vals.length > 3 ? ' five' : '';
   }
   return `<div class="srow${cls}" data-row="${s.id}">
@@ -585,7 +588,7 @@ function rowHTML(c, s) {
 }
 
 function stats(c, sid) {
-  const st = { n: 0, avg: {}, pct: {}, cnt: {}, list: {}, nums: {}, texts: {}, hu: { y: 0, n: 0 }, vh: { n: 0, last: '', lastD: '' }, abs: { A: 0, AN: 0 }, absDays: {}, total: null };
+  const st = { n: 0, avg: {}, pct: {}, pas: {}, cnt: {}, list: {}, nums: {}, texts: {}, hu: { y: 0, n: 0 }, vh: { n: 0, last: '', lastD: '' }, abs: { A: 0, AN: 0 }, absDays: {}, total: null };
   const acc = {}, vis = visKeys(c);
   for (const k of catKeys(c)) { acc[k] = { s: 0, w: 0 }; st.cnt[k] = { '+': 0, '~': 0, '-': 0 }; st.list[k] = []; st.nums[k] = { n: 0, best: null, last: null, lastD: '' }; st.texts[k] = { n: 0, last: '', lastD: '' }; }
   const es = entriesOf(c.id, sid).sort((a, b) => a.d.localeCompare(b.d));
@@ -606,6 +609,7 @@ function stats(c, sid) {
     if (num != null) { acc[e.t].s += num * w; acc[e.t].w += w; }
     if (String(e.v)[0] === '%') { const p = st.pct[e.t] || (st.pct[e.t] = { s: 0, w: 0 }); p.s += parseFloat(e.v.slice(1)) * w; p.w += w; }
     if (isAbs(e.v)) { if (st.absDays[e.d] !== 'A') st.absDays[e.d] = e.v === 'AN' ? 'AN' : 'A'; continue; }
+    if (e.v === PAS) { st.pas[e.t] = (st.pas[e.t] || 0) + 1; continue; }
     if (e.t === 'hu') st.hu[e.v] = (st.hu[e.v] || 0) + 1;
     else {
       const pm = toPm(e.v); if (pm in st.cnt[e.t]) st.cnt[e.t][pm]++;
@@ -730,6 +734,10 @@ const dash = '<span class="chev">–</span>';
 // + ~ − als Zähler – nur, was vorkommt
 const pmCounts = x => [['+', 'g-t', '+'], ['~', 'm-t', '~'], ['-', 'b-t', '−']].filter(([k]) => x[k]).map(([k, c, l]) => `<span class="${c}">${l}${x[k]}</span>`).join('') || dash;
 function metricHTML(c, st, k) {
+  const m = metricBase(c, st, k), n = st.pas[k];
+  return !n ? m : (m === dash ? '' : m) + `<span class="pasn">${n}× passiv</span>`;
+}
+function metricBase(c, st, k) {
   if (k === 'hu') { const T = st.hu.y + st.hu.n; return T ? `${st.hu.y}/${T}` : dash; }
   if (k === 'an') return st.abs.A ? `<span class="b-t">${st.abs.A}× abw.</span>` : dash;
   if (k === 'vh') return st.vh.n ? `<span class="b-t">${st.vh.n}×</span>` : dash;
@@ -1025,6 +1033,7 @@ function viewStudent(c, sid) {
       val = a == null ? '–' : `<span class="${gradeCls(a)}">${fmtNum(a)}</span>`;
       sub = st.list[k].length ? 'Noten: ' + st.list[k].join(', ') : 'noch keine';
     }
+    if (st.pas[k]) sub = val === '–' || sub === 'noch keine' ? `${st.pas[k]}× passiv` : `${sub} · ${st.pas[k]}× passiv`;
     return `<div class="tile"><div class="k">${esc(t.label)}${sc && sc !== 'pm' ? ' Ø' : ''}</div><div class="val">${val}</div><div class="sub">${esc(sub)}</div></div>`;
   };
   const tiles = `<div class="tiles">
@@ -1052,6 +1061,7 @@ function viewStudent(c, sid) {
           : isAbs(e.v) ? `<span class="badge abs" title="${ABS[e.v]}">${e.v}</span>`
           : e.t === 'vh' || kind === 'text' ? ''
           : kind === 'num' ? `<span class="badge n">${esc(withUnit(e.v, t.unit))}</span>`
+          : e.v === PAS ? `<span class="badge pas">passiv</span>`
             : `<button class="badge ${cls}" data-a="entryWeight" data-v="${e.id}" aria-label="Gewichtung ändern">${glyph(label)}${e.w && e.w !== 1 ? `<small>×${fmtW(e.w)}</small>` : ''}</button>`;
         return `<div class="erow"><span class="eicon ${e.t === 'vh' ? 'b' : cls}">${ICON[t.icon]}</span>
           ${kind === 'text' ? `<div class="etext"><div class="etitle">${esc(title)}</div><div class="enote">${esc(note)}</div></div>`
@@ -1507,9 +1517,9 @@ function catSummary(c, k, es) {
   let S = 0, W = 0; g.forEach(e => { const w = e.w || 1; S += gradeVal(c, e) * w; W += w; });
   if (scaleOf(c, k) === 'pct') {
     const pe = g.filter(e => String(e.v)[0] === '%'); let P = 0, PW = 0; pe.forEach(e => { const w = e.w || 1; P += parseFloat(e.v.slice(1)) * w; PW += w; });
-    return [['Ø %', PW ? Math.round(P / PW * 10) / 10 : null], ['Ø', W ? S / W : null], ['Einträge', g.length]];
+    return [['Ø %', PW ? Math.round(P / PW * 10) / 10 : null], ['Ø', W ? S / W : null], ['Einträge', g.length], ['passiv', es.filter(e => e.v === PAS).length]];
   }
-  return [['Ø', W ? S / W : null], ['Einträge', g.length]];
+  return [['Ø', W ? S / W : null], ['Einträge', g.length], ['passiv', es.filter(e => e.v === PAS).length]];
 }
 function catData(c, k) {
   const rows = [...c.students].sort(byName).map(s => {
@@ -1567,7 +1577,7 @@ function catSection(kit, c, k, eyebrow) {
     return y + 22;
   };
   const sumText = sum => {
-    const l = sum.filter(x => x[1] !== null && x[1] !== '' && !(x[0] === 'zuletzt' && (kind === 'text' || k === 'vh')) && !(k === 'vh' && x[1] === 0))
+    const l = sum.filter(x => x[1] !== null && x[1] !== '' && !(x[0] === 'zuletzt' && (kind === 'text' || k === 'vh')) && !(k === 'vh' && x[1] === 0) && !(x[0] === 'passiv' && !x[1]))
       .map(([l, v]) => l === 'Ø' ? `Ø ${fmtNum(v)}` : l === 'Ø %' ? `Ø ${fmtVal(v)} %` : l.startsWith('Bestwert') ? `Bestwert ${withUnit(v, t.unit)}` : l === 'zuletzt' ? `zuletzt ${withUnit(v, t.unit)}` : l === 'Vermerke' ? plural(v, 'Vermerk', 'Vermerke') : `${v} ${l}`);
     return l.length ? l : ['–'];
   };
@@ -1691,7 +1701,8 @@ function studentTrendPDF(c, s) {
     if (key === 'vh') return st.vh.n ? plural(st.vh.n, 'Vermerk', 'Vermerke') : 'keine Vermerke';
     if (kind === 'num') { const x = st.nums[key]; return x.best == null ? '–' : `Bestwert ${withUnit(x.best, typeOf(c, key).unit)} · ${plural(x.n, 'Messung', 'Messungen')}`; }
     if (kind === 'text') return st.texts[key].n ? plural(st.texts[key].n, 'Notiz', 'Notizen') : '–';
-    return st.avg[key] == null ? '–' : `Ø ${fmtNum(st.avg[key])}  (${st.list[key].join(', ')})`;
+    const pas = st.pas[key] ? `${st.avg[key] == null ? '' : ' · '}${st.pas[key]}× passiv` : '';
+    return st.avg[key] == null ? (pas || '–') : `Ø ${fmtNum(st.avg[key])}  (${st.list[key].join(', ')})${pas}`;
   })()]);
   k.text(M, y, 'KATEGORIEN', { size: 8, bold: true, color: COL.acc }); y += 8;
   rowsK.forEach(([l, v], i) => {
@@ -2352,7 +2363,7 @@ const actions = {
         else if (k === 'vh') r.push(st.vh.n, st.vh.last);
         else if (kind === 'num') { const x = st.nums[k]; r.push(x.best == null ? '' : fmtVal(x.best), x.last == null ? '' : fmtVal(x.last), x.n); }
         else if (kind === 'text') { const x = st.texts[k]; r.push(x.n, x.last); }
-        else r.push(st.avg[k] == null ? '' : fmtNum(st.avg[k]), st.list[k].join(' '));
+        else r.push(st.avg[k] == null ? '' : fmtNum(st.avg[k]), st.list[k].join(' ') + (st.pas[k] ? ` (${st.pas[k]}× passiv)` : ''));
       }
       r.push(st.total == null ? '' : fmtNum(st.total));
       rows.push(r);

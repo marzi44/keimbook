@@ -714,3 +714,10 @@ main { padding-left: max(16px, env(safe-area-inset-left), calc((100% - 600px) / 
 button.link.inl { padding: 0; font-size: inherit; display: inline; color: var(--accent); }
 .lrow .mini-seg.compact button { padding: 0 9px; font-size: 14px; min-width: 0; }
 .nowrap { white-space: nowrap; }
+
+/* ---------- passiv (anwesend, keine Leistung) ---------- */
+.v.pas { font-size: 13px; font-weight: 750; color: var(--ink-3); background: none; border-style: dashed; margin-left: 3px; }
+.v.pas.on { background: var(--ink-2); border: 1px solid var(--ink-2); color: var(--surface); }
+.srow.five .v.pas { width: 30px; margin-left: 2px; }
+.badge.pas { background: var(--fill); color: var(--ink-2); font-size: 13px; }
+.pasn { color: var(--ink-3); font-weight: 600; font-size: .86em; }
