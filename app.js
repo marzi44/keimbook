@@ -8,7 +8,7 @@ const PUBLIC_KEY = {
   x: 'kHkzCWyGjuxGxGf_3AMH2F_MKEWEjH1hfCnBf7K1Imo',
   y: 'Fv556fMFzralLJTUqYxNxI68b9Fd4ctkLzgn07BzKj0'
 };
-const APP_VERSION = '4.7';
+const APP_VERSION = '4.8';
 
 const TYPES = {
   ma: { label: 'Mitarbeit', long: 'Mitarbeit', icon: 'spark', vals: [['+', '+', 'g'], ['~', '~', 'm'], ['-', '−', 'b']] },
@@ -342,10 +342,30 @@ async function save() {
   try { await DB.set('data', dek ? { enc: 1, ...(await Crypt.seal(dek, TE.encode(JSON.stringify(data)))) } : data); }
   catch (e) { toast('Speichern fehlgeschlagen: ' + e.message); }
 }
-const saveUi = () => lsSet('kb.ui', { tab: ui.tab, type: ui.type, filter: ui.filter });
+const saveUi = () => lsSet('kb.ui', { tab: ui.tab, type: ui.type, filter: ui.filter, period: ui.period });
+if (!['s1', 's2', 'y', 'all'].includes(ui.period)) ui.period = 'y';
+
+/* ---------- Zeitraum: 1. Semester, 2. Semester, Schuljahr (Sept. bis Aug.) ---------- */
+const PERIODS = { s1: '1. Semester', s2: '2. Semester', y: 'Schuljahr', all: 'Alles' };
+const sem2Start = () => (data.prefs && data.prefs.sem2) || '02-01';     // MM-TT, Beginn 2. Semester
+const schoolYear = (iso = today()) => { const [y, m] = iso.split('-').map(Number); return m >= 9 ? y : y - 1; };
+function periodRange(p = ui.period) {
+  const y = schoolYear(), from = `${y}-09-01`, mid = `${y + 1}-${sem2Start()}`, to = `${y + 1}-09-01`;
+  return p === 's1' ? [from, mid] : p === 's2' ? [mid, to] : p === 'y' ? [from, to] : ['0000-00-00', '9999-12-31'];
+}
+const inPeriod = d => { const [a, b] = periodRange(); return d >= a && d < b; };
+const yearLabel = () => { const y = schoolYear(); return `${y}/${String(y + 1).slice(2)}`; };
+const periodText = () => ui.period === 'all' ? 'alle Einträge' : `${PERIODS[ui.period]} ${yearLabel()}`;
+const periodFile = () => ({ s1: '1-Semester', s2: '2-Semester', y: 'Schuljahr', all: 'Gesamt' })[ui.period] + '_' + yearLabel().replace('/', '-');
+const hasOld = c => { const [a] = periodRange('y'); return data.entries.some(e => e.c === c.id && e.d < a); };
+function periodSeg(c) {
+  const keys = ['s1', 's2', 'y', ...(ui.period === 'all' || hasOld(c) ? ['all'] : [])];
+  return `<div class="seg period">${keys.map(k => `<button class="${ui.period === k ? 'on' : ''}" data-a="setPeriod" data-v="${k}">${k === 'y' ? 'Jahr' : k === 's1' ? '1. Sem.' : k === 's2' ? '2. Sem.' : 'Alles'}</button>`).join('')}</div>`;
+}
 
 const getClass = id => data.classes.find(c => c.id === id);
-const entriesOf = (cid, sid) => data.entries.filter(e => e.c === cid && (!sid || e.s === sid));
+// Auswertungen sehen nur den gewählten Zeitraum (Eintragen selbst ist davon unabhängig)
+const entriesOf = (cid, sid) => data.entries.filter(e => e.c === cid && (!sid || e.s === sid) && inPeriod(e.d));
 
 /* ---------- Lizenz ---------- */
 async function verifyLicense(code) {
@@ -443,7 +463,7 @@ function render() {
   });
   onScroll();
 }
-window.addEventListener('hashchange', () => { main.scrollTop = 0; render(); });
+window.addEventListener('hashchange', () => { main.scrollTop = 0; $('#toast').classList.remove('show'); render(); });
 // Kein Zoomen per Zwei-Finger-Geste (iOS ignoriert user-scalable=no)
 ['gesturestart', 'gesturechange', 'gestureend'].forEach(t => document.addEventListener(t, e => e.preventDefault(), { passive: false }));
 
@@ -628,6 +648,15 @@ function stats(c, sid) {
   Object.values(st.absDays).forEach(v => st.abs[v]++);
   return st;
 }
+// Notenvorschlag fürs Zeugnis: aus dem angezeigten Schnitt (eine Kommastelle) gerundet.
+// Steht dort genau x,5, ist es knapp: „x–y“ – die Lehrkraft entscheidet.
+function proposal(t) {
+  if (t == null) return null;
+  const r = Math.round(t * 10) / 10, lo = Math.floor(r);
+  if (lo >= 1 && lo < 5 && Math.round((r - lo) * 10) === 5) return { text: `${lo}–${lo + 1}`, close: true, n: null };
+  const n = Math.min(5, Math.max(1, Math.round(r)));
+  return { text: String(n), close: false, n };
+}
 const gradeCls = g => g == null ? '' : g < 2.5 ? 'g-t' : g <= 4 ? 'm-t' : 'b-t';
 
 /* ---------- Trend & Warnung ---------- */
@@ -756,13 +785,13 @@ function viewOverview(c) {
     return `<a class="orow" href="#/s/${c.id}/${s.id}">
       <div class="otop"><span class="av ${avc(s.name)}">${esc(initials(s.name))}</span><span class="oname">${esc(s.name)}${fromTag(s)}</span>${isRisk(st) ? WARN : ''}${ICON.chev}</div>
       ${(() => { const tr = trendOf(c, s.id); return `<div class="otrend">
-        ${st.total == null ? '<span class="tot">Ø –</span>' : `<span class="tot ${gradeCls(st.total)}">Ø ${fmtNum(st.total)}${trendIcon(tr)}</span>`}
+        ${st.total == null ? '<span class="tot">Ø –</span>' : `<span class="tot ${gradeCls(st.total)}">Ø ${fmtNum(st.total)}${trendIcon(tr)}</span>${(p => `<span class="prop ${p.close ? 'close' : gradeCls(p.n)}" title="Notenvorschlag">${p.text}</span>`)(proposal(st.total))}`}
         ${sparkHTML(tr)}</div>`; })()}
       ${(() => { const m = visKeys(c).map(k => [k, metricHTML(c, st, k)]).filter(([, v]) => v !== dash);
         return m.length ? `<div class="metrics">${m.map(([k, v]) => `<span class="met"><span class="ml">${esc(shortOf(c, k))}</span><span class="mv">${v}</span></span>`).join('')}</div>` : ''; })()}</a>`;
   }).join('');
-  return `<div class="card">${rows}</div>
-    <p class="legend">Ø = Gesamtnote · ${esc(weightSummary(c))}</p>
+  return `${periodSeg(c)}<div class="card">${rows}</div>
+    <p class="legend">Ø = Gesamtnote ${esc(periodText())} · ${esc(weightSummary(c))} · Kästchen = Notenvorschlag (gerundet; bei x,5 knapp – du entscheidest)</p>
     <button class="btn secondary block" data-a="exportMenu">${ICON.download} Exportieren</button>`;
 }
 
@@ -1036,8 +1065,11 @@ function viewStudent(c, sid) {
     if (st.pas[k]) sub = val === '–' || sub === 'noch keine' ? `${st.pas[k]}× passiv` : `${sub} · ${st.pas[k]}× passiv`;
     return `<div class="tile"><div class="k">${esc(t.label)}${sc && sc !== 'pm' ? ' Ø' : ''}</div><div class="val">${val}</div><div class="sub">${esc(sub)}</div></div>`;
   };
-  const tiles = `<div class="tiles">
-    <a class="tile total" href="#/b/${c.id}"><div class="k">Gesamtnote</div><div class="val">${st.total == null ? '–' : fmtNum(st.total)}</div><div class="sub">${esc(weightSummary(c))}</div></a>
+  const pr = proposal(st.total);
+  const tiles = `${periodSeg(c)}<div class="tiles">
+    <a class="tile total" href="#/b/${c.id}"><div class="k">Gesamtnote · ${esc(PERIODS[ui.period])}</div>
+      <div class="val">${st.total == null ? '–' : fmtNum(st.total)}${pr ? `<span class="propbig${pr.close ? ' close' : ''}">${pr.text}</span>` : ''}</div>
+      <div class="sub">${pr ? (pr.close ? `Knapp zwischen ${pr.text.replace('–', ' und ')} – du entscheidest · ` : `Vorschlag fürs Zeugnis: ${pr.text} · `) : ''}${esc(weightSummary(c))}</div></a>
     ${visKeys(c).map(tile).join('')}
   </div>`;
   const filt = ui.filter === 'all' || visKeys(c).includes(ui.filter) ? ui.filter : 'all';
@@ -1119,6 +1151,11 @@ function viewSettings() {
     <p class="fine">Die Daten sind auf diesem Gerät verschlüsselt. Nach dem Öffnen und wenn die App länger im Hintergrund war, fragt sie nach dem PIN.</p>`
     : `<div class="card"><button class="lrow" data-a="pinOn"><span class="licon">${ICON.lock}</span><span class="grow">PIN-Sperre einschalten</span>${ICON.chev}</button></div>
     <p class="fine">Empfohlen: Mit PIN werden alle Daten auf diesem Gerät verschlüsselt und nur nach Eingabe des PINs angezeigt.</p>`}
+
+    <div class="section">Schuljahr ${esc(yearLabel())}</div>
+    <div class="card"><label class="lrow static"><span class="licon">${ICON.list}</span><span class="grow">2. Semester beginnt am</span>
+      <input class="dateinp" type="date" data-ch="setSem2" value="${schoolYear() + 1}-${sem2Start()}"></label></div>
+    <p class="fine">Das Schuljahr läuft von 1. September bis 31. August. Trag hier den ersten Schultag nach den Semesterferien ein – danach richten sich Übersicht, Noten und Exporte für „1. Sem.“ und „2. Sem.“.</p>
 
     <div class="section">Lizenz</div>
     <div class="card"><div class="lrow static"><span class="licon">${ICON.key}</span><span class="grow">${esc(license.info.n)}</span><span class="muted">${esc(exp)}</span></div></div>
@@ -1242,17 +1279,23 @@ function vermerkSheet(name, d, title = 'Verhalten') {
 
 let toastTimer;
 function toast(msg, act) {
-  const t = $('#toast');
-  t.textContent = msg;
-  t.classList.toggle('act', !!act);
-  if (act) {
+  const t = $('#toast'), acts = !act ? [] : Array.isArray(act) ? act.filter(Boolean) : [act];
+  t.textContent = '';
+  const m = document.createElement('span'); m.className = 'tmsg'; m.textContent = msg; t.appendChild(m);
+  t.classList.toggle('act', acts.length > 0);
+  acts.forEach((a, i) => {
     const b = document.createElement('button');
-    b.type = 'button'; b.className = 'tact'; b.textContent = act.label;
-    b.onclick = () => { t.classList.remove('show'); act.fn(); };
+    b.type = 'button'; b.className = 'tact' + (i ? ' alt' : ''); b.textContent = a.label;
+    b.onclick = () => { t.classList.remove('show'); a.fn(); };
     t.appendChild(b);
-  }
+  });
   t.classList.add('show');
-  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), act ? 4000 : 2600);
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), acts.length ? 5000 : 2600);
+}
+// „Rückgängig“: merkt sich den Stand der Einträge vor einer Änderung
+function undoable() {
+  const snap = JSON.stringify(data.entries);
+  return { label: 'Rückgängig', fn: async () => { data.entries = JSON.parse(snap); await save(); render(); haptic(); toast('Rückgängig gemacht'); } };
 }
 const haptic = () => { try { if (navigator.vibrate) navigator.vibrate(8); } catch { } };
 
@@ -1353,9 +1396,9 @@ function classTrendsXLSX(c, rows) {
   const ser = [];
   rows.forEach(r => r.tr.ser.forEach(p => ser.push([r.s.name, ddmmyyyy(p.d), p.v])));
   return xlsxBook([
-    { name: 'Trends', head: ['Name', 'Herkunft', 'Gesamtnote', 'vor 4 Wochen', 'Veränderung (+ = besser)', 'Trend', 'Note über 4', 'Abwesend', 'Anwesend', ...noteKeys.map(k => typeOf(c, k).label + ' Ø')],
-      rows: rows.map(r => [r.s.name, r.s.from || '', r.st.total, r.then, r.tr.dir ? -r.tr.delta : null, r.word, isRisk(r.st) ? 'ja' : 'nein', r.st.abs.A, r.st.abs.AN, ...noteKeys.map(k => r.st.avg[k])]),
-      widths: [28, 12, 12, 13, 22, 20, 12, 13, 22, ...noteKeys.map(() => 14)], num: [2, 3, 4, ...noteKeys.map((_, i) => 9 + i)] },
+    { name: 'Trends', head: ['Name', 'Herkunft', 'Gesamtnote', 'Notenvorschlag', 'vor 4 Wochen', 'Veränderung (+ = besser)', 'Trend', 'Note über 4', 'Abwesend', 'Anwesend', ...noteKeys.map(k => typeOf(c, k).label + ' Ø')],
+      rows: rows.map(r => [r.s.name, r.s.from || '', r.st.total, (proposal(r.st.total) || { text: '' }).text, r.then, r.tr.dir ? -r.tr.delta : null, r.word, isRisk(r.st) ? 'ja' : 'nein', r.st.abs.A, r.st.abs.AN, ...noteKeys.map(k => r.st.avg[k])]),
+      widths: [28, 12, 12, 15, 13, 22, 20, 12, 13, 22, ...noteKeys.map(() => 14)], num: [2, 4, 5, ...noteKeys.map((_, i) => 10 + i)] },
     { name: 'Verlauf', head: ['Name', 'Datum', 'Gesamtnote'], rows: ser, widths: [28, 12, 12], num: [2] }
   ]);
 }
@@ -1457,20 +1500,20 @@ function pdfHead(k, eyebrow, title, lines) {
   let y = M;
   k.text(M, y + 8, eyebrow, { size: 8, bold: true, color: COL.acc }); y += 34;
   k.text(M, y, title, { size: 22, bold: true }); y += 18;
-  lines.forEach((l, i) => { k.text(M, y, l, { size: i ? 7.5 : 9, color: i ? COL.ink3 : COL.ink2 }); y += i ? 11 : 14; });
+  [...lines, `Zeitraum: ${periodText()}`].forEach((l, i) => { k.text(M, y, l, { size: i ? 7.5 : 9, color: i ? COL.ink3 : COL.ink2 }); y += i ? 11 : 14; });
   return y + 10;
 }
 
 function classTrendsPDF(c, rows) {
   const k = pdfKit(), { W, H, M, COL } = k;
-  const X = { name: M, tot: 222, then: 270, chg: 314, trend: 328, spark: 438, abs: W - M }, SPW = 70, RH = 26;
+  const X = { name: M, tot: 194, prop: 224, then: 280, chg: 318, trend: 332, spark: 440, abs: W - M }, SPW = 68, RH = 26;
   const header = first => {
     let y = first ? pdfHead(k, 'TRENDS', c.name, [`Stand ${fmtDayLong(today())} · Gesamtnote gewichtet: ${weightSummary(c)}`,
-      'Trend = Gesamtnote heute im Vergleich zu vor 4 Wochen (+ = besser). Verlauf: oben = gute Note, rot = Bereich über 4.',
+      'Note = Vorschlag fürs Zeugnis (gerundet; bei x,5 knapp, z. B. „2–3“ – Entscheidung der Lehrkraft). Trend = heute im Vergleich zu vor 4 Wochen (+ = besser).',
       'Abw. / Anw. = Tage abwesend / anwesend (zählt nicht zur Note).']) : M + 6;
     k.rect(M, y, W - 2 * M, 22, COL.accS);
     const hy = y + 14.5, o = { size: 8, bold: true, color: COL.acc };
-    k.text(X.name + 8, hy, 'NAME', o); k.text(X.tot, hy, 'GESAMT', { ...o, align: 'right' }); k.text(X.then, hy, 'VOR 4 WO.', { ...o, align: 'right' });
+    k.text(X.name + 8, hy, 'NAME', o); k.text(X.tot, hy, 'GESAMT', { ...o, align: 'right' }); k.text(X.prop, hy, 'NOTE', { ...o, align: 'right' }); k.text(X.then, hy, 'VOR 4 WO.', { ...o, align: 'right' });
     k.text(X.chg, hy, '+/–', { ...o, align: 'right' }); k.text(X.trend, hy, 'TREND', o); k.text(X.spark, hy, 'VERLAUF', o); k.text(X.abs - 8, hy, 'ABW. / ANW.', { ...o, align: 'right' });
     return y + 22;
   };
@@ -1481,7 +1524,8 @@ function classTrendsPDF(c, rows) {
     const cy = y + RH / 2 + 3.2;
     let nx = X.name + 8;
     if (isRisk(r.st)) { k.warn(nx, cy); nx += 14; }
-    k.text(nx, cy, k.fit(r.s.name + (r.s.from ? ` (${r.s.from})` : ''), X.tot - 50 - nx, 9.5), { size: 9.5 });
+    k.text(nx, cy, k.fit(r.s.name + (r.s.from ? ` (${r.s.from})` : ''), X.tot - 42 - nx, 9.5), { size: 9.5 });
+    const pr = proposal(r.st.total); if (pr) k.text(X.prop, cy, pr.text, { size: 10, bold: true, color: pr.close ? COL.mid : k.gc(pr.n), align: 'right' });
     k.text(X.tot, cy, r.st.total == null ? '–' : fmtNum(r.st.total), { size: 10, bold: true, color: k.gc(r.st.total), align: 'right' });
     k.text(X.then, cy, r.then == null ? '–' : fmtNum(r.then), { size: 9.5, color: COL.ink2, align: 'right' });
     if (r.tr.dir) {
@@ -1892,6 +1936,11 @@ const actions = {
     await loadData(); render(); toast('Freigeschaltet für ' + res.info.n);
   },
   goSettings() { location.hash = '#/einstellungen'; },
+  setPeriod(d) { ui.period = d.v; saveUi(); render(); },
+  async setSem2(inp) {
+    const v = inp.value; if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return;
+    data.prefs = Object.assign({}, data.prefs, { sem2: v.slice(5) }); await save(); toast('2. Semester beginnt am ' + fmtDayLong(v));
+  },
   async pinKey(d) {
     if (!locked) return;
     const t = pinTries(); if (t.until > Date.now()) return render();
@@ -2070,6 +2119,7 @@ const actions = {
     const s = c.students.find(x => x.id === d.s); if (!s) return;
     const type = curType(c);
     if (type !== 'an' && isAbsentOn(c, s.id, ui.date)) return;
+    const undo = undoable();
     if (type === 'an' && d.v === 'A') {
       const other = data.entries.filter(e => e.c === c.id && e.s === s.id && e.d === ui.date && e.t !== 'an');
       if (other.length) {
@@ -2081,7 +2131,7 @@ const actions = {
     if (type === 'vh') {
       const n = await vermerkSheet(s.name, ui.date, typeOf(c, 'vh').label); if (!n) return;
       data.entries.push({ id: uid(), c: c.id, s: s.id, d: ui.date, t: type, v: 'x', n });
-      toast(`Vermerk notiert: ${s.name.split(' ').slice(-1)[0]}`);
+      toast(`Vermerk notiert: ${s.name.split(' ').slice(-1)[0]}`, undo);
     } else {
       const i = data.entries.findIndex(e => e.c === c.id && e.s === d.s && e.d === ui.date && e.t === type);
       if (i >= 0 && data.entries[i].v === d.v) return actions.entryNote({ v: data.entries[i].id }, true);
@@ -2089,7 +2139,7 @@ const actions = {
       if (i >= 0) { e = data.entries[i]; e.v = d.v; }
       else { e = { id: uid(), c: c.id, s: d.s, d: ui.date, t: type, v: d.v }; data.entries.push(e); }
       const lbl = valInfo(c, type, d.v)[1];
-      toast(`${s.name.split(' ').slice(-1)[0]}: ${typeOf(c, type).label} ${lbl === '−' ? '−' : lbl}`, { label: e.n ? 'Anmerkung ändern' : 'Anmerkung', fn: () => actions.entryNote({ v: e.id }) });
+      toast(`${s.name.split(' ').slice(-1)[0]}: ${lbl}`, [undo, { label: 'Anmerkung', fn: () => actions.entryNote({ v: e.id }) }]);
     }
     const row = document.querySelector(`[data-row="${d.s}"]`);
     if (row) row.outerHTML = rowHTML(c, s);
@@ -2264,14 +2314,14 @@ const actions = {
   },
   async bulkFill(d) {
     const c = currentClass(); if (!c) return;
-    const type = curType(c);
+    const type = curType(c), undo = undoable();
     let n = 0;
     for (const s of c.students) {
       if (!data.entries.some(e => e.c === c.id && e.s === s.id && e.d === ui.date && e.t === type) && (type === 'an' || !isAbsentOn(c, s.id, ui.date))) {
         data.entries.push({ id: uid(), c: c.id, s: s.id, d: ui.date, t: type, v: d.v }); n++;
       }
     }
-    await save(); render(); toast(n ? `${n}× ${type === 'an' ? 'anwesend' : 'als gebracht'} eingetragen` : 'Alle sind schon eingetragen');
+    await save(); render(); toast(n ? `${n}× ${type === 'an' ? 'anwesend' : 'als gebracht'} eingetragen` : 'Alle sind schon eingetragen', n ? undo : null);
   },
 
   async studentMenu() {
@@ -2295,7 +2345,8 @@ const actions = {
       : (() => { const c = getClass(e.c), t = typeOf(c, e.t) || { long: e.t }, kind = kindOf(c, e.t);
           return `${t.long}: ${kind === 'num' ? withUnit(e.v, t.unit) : kind === 'text' ? e.v : valInfo(c, e.t, e.v)[1]}`; })();
     if (!await modal({ title: 'Eintrag löschen?', text: `${fmtDayLong(e.d)}\n${what}`, ok: 'Löschen', danger: true })) return;
-    data.entries = data.entries.filter(x => x !== e); await save(); render();
+    const undo = undoable();
+    data.entries = data.entries.filter(x => x !== e); await save(); render(); toast('Eintrag gelöscht', undo);
   },
 
   async exportMenu() {
@@ -2317,7 +2368,7 @@ const actions = {
     const fmt = await modal({ title: cat && cat.length > 1 ? plural(cat.length, 'Kategorie', 'Kategorien') : label,
       text: cat && cat.length > 1 ? cat.map(k => typeOf(c, k).label).join(' · ') : c.name, options: [['pdf', 'Als PDF'], ['xlsx', 'Als Excel (.xlsx)']] });
     if (!fmt) return;
-    const base = `${safeName(label)}_${safeName(c.name)}_${today()}`;
+    const base = `${safeName(label)}_${safeName(c.name)}_${periodFile()}`;
     if (fmt === 'pdf') saveFile(base + '.pdf', 'application/pdf', cat ? catPDF(c, cat) : classTrendsPDF(c, trendRows(c)));
     else saveFile(base + '.xlsx', XLSX_MIME, cat ? catXLSX(c, cat) : classTrendsXLSX(c, trendRows(c)));
   },
@@ -2325,7 +2376,7 @@ const actions = {
     const c = currentClass(); const s = c && c.students.find(x => x.id === currentStudentId()); if (!s) return;
     const k = await modal({ title: 'Trend exportieren', text: s.name, options: [['pdf', 'Als PDF'], ['xlsx', 'Als Excel (.xlsx)']] });
     if (!k) return;
-    const base = `Trend_${safeName(s.name)}_${today()}`;
+    const base = `Trend_${safeName(s.name)}_${periodFile()}`;
     if (k === 'pdf') saveFile(base + '.pdf', 'application/pdf', studentTrendPDF(c, s));
     else saveFile(base + '.xlsx', XLSX_MIME, studentTrendXLSX(c, s));
   },
@@ -2334,7 +2385,7 @@ const actions = {
     const k = await modal({ title: 'Trends exportieren', text: c.name, options: [['pdf', 'Als PDF'], ['xlsx', 'Als Excel-Datei (.xlsx)']] });
     if (!k) return;
     const rows = trendRows(c);
-    const base = `Trends_${safeName(c.name)}_${today()}`;
+    const base = `Trends_${safeName(c.name)}_${periodFile()}`;
     if (k === 'pdf') saveFile(base + '.pdf', 'application/pdf', classTrendsPDF(c, rows));
     else saveFile(base + '.xlsx', XLSX_MIME, classTrendsXLSX(c, rows));
   },
@@ -2369,7 +2420,7 @@ const actions = {
       rows.push(r);
     }
     rows.push([], [`Gewichtung: ${weightSummary(c)}`]);
-    saveFile(`Übersicht_${safeName(c.name)}_${today()}.csv`, 'text/csv', toCSV(rows));
+    saveFile(`Übersicht_${safeName(c.name)}_${periodFile()}.csv`, 'text/csv', toCSV(rows));
   },
   exportEntries() {
     const c = currentClass(); if (!c) return;
@@ -2380,7 +2431,7 @@ const actions = {
         e.t === 'hu' ? (e.v === 'y' ? 'gebracht' : 'nicht gebracht') : e.t === 'vh' ? 'Vermerk'
           : kindOf(c, e.t) === 'num' ? withUnit(e.v, typeOf(c, e.t).unit) : kindOf(c, e.t) === 'text' ? e.v : valInfo(c, e.t, e.v)[1],
         e.w ? fmtW(e.w) : '1', e.n || '']));
-    saveFile(`Einträge_${safeName(c.name)}_${today()}.csv`, 'text/csv', toCSV(rows));
+    saveFile(`Einträge_${safeName(c.name)}_${periodFile()}.csv`, 'text/csv', toCSV(rows));
   },
   async exportBackup() {
     let k = await loadBackupKey();
@@ -2455,6 +2506,7 @@ document.addEventListener('change', e => {
   if (e.target.id === 'date' && e.target.value) { ui.date = e.target.value; render(); }
 });
 document.addEventListener('input', e => { if (e.target.id === 'cmpName') cmp.name = e.target.value; });
+document.addEventListener('change', e => { const a = e.target.dataset && e.target.dataset.ch; if (a && actions[a]) actions[a](e.target); });
 document.addEventListener('change', e => { if (e.target.classList && e.target.classList.contains('valin')) actions.setVal(e.target); });
 document.addEventListener('keydown', e => {
   if (e.key !== 'Enter' || !e.target.classList || !e.target.classList.contains('valin')) return;

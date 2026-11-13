@@ -1,6 +1,6 @@
 // Offline-Cache. Bei jeder neuen Version VERSION erhöhen, damit Geräte das Update laden.
 // Eigener Präfix „keim-“: Die alte Adresse …/klassenbuch/ liegt auf derselben Domain und räumt nur ihre „kb-“-Caches auf.
-const VERSION = 'keim-v31';
+const VERSION = 'keim-v32';
 const FILES = [
   './', './index.html', './app.js', './style.css', './manifest.webmanifest',
   './icon-192.png', './icon-512.png', './apple-touch-icon.png'

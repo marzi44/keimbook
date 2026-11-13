@@ -721,3 +721,23 @@ button.link.inl { padding: 0; font-size: inherit; display: inline; color: var(--
 .srow.five .v.pas { width: 30px; margin-left: 2px; }
 .badge.pas { background: var(--fill); color: var(--ink-2); font-size: 13px; }
 .pasn { color: var(--ink-3); font-weight: 600; font-size: .86em; }
+
+/* ---------- Rückgängig in der Meldung ---------- */
+#toast.act { gap: 8px; padding-left: 16px; max-width: calc(100vw - 24px); }
+#toast .tmsg { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#toast .tact.alt { background: rgba(255, 255, 255, .14); color: inherit; }
+@media (prefers-color-scheme: dark) { #toast .tact.alt { background: var(--fill); color: var(--ink); } }
+
+/* ---------- Zeitraum (Semester / Schuljahr) ---------- */
+.seg.period { margin: 0 0 12px; }
+.seg.period button { font-size: 14px; height: 34px; }
+.dateinp { flex: none; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); color: var(--ink); font: inherit; font-size: 15px; padding: 6px 8px; }
+
+/* ---------- Notenvorschlag ---------- */
+.prop { display: inline-grid; place-items: center; min-width: 30px; height: 30px; padding: 0 7px; border-radius: 9px; border: 1.5px solid currentColor;
+        font-weight: 750; font-size: 15px; margin-left: 6px; flex: none; color: var(--ink); }
+.prop.close { color: var(--mid); border-style: dashed; }
+.propbig { display: inline-grid; place-items: center; min-width: 46px; height: 42px; padding: 0 10px; border-radius: 12px; margin-left: 12px;
+           border: 2px solid currentColor; font-size: 24px; vertical-align: middle; opacity: .95; }
+.propbig.close { border-style: dashed; }
+.otrend .prop { margin-left: -4px; }
