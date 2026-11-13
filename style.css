@@ -866,3 +866,24 @@ button.link.inl { padding: 0; font-size: inherit; display: inline; color: var(--
 .faq .fa b { color: var(--ink); }
 .hidrow .link svg { vertical-align: -3px; }
 @media (prefers-reduced-motion: reduce) { .faq summary svg { transition: none; } }
+
+/* ---------- Stundenplan ---------- */
+.nowcard { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; border: 0; background: var(--accent); color: var(--accent-ink); border-radius: 18px; padding: 12px 14px; margin: 0 0 12px; box-shadow: var(--shadow); font: inherit; }
+.nowcard .ctile { flex: none; }
+.nowcard .nlab { display: block; font-size: 13px; font-weight: 600; opacity: .85; }
+.nowcard .ntitle { display: block; font-size: 18px; font-weight: 700; }
+.nowcard .chev { color: inherit; opacity: .8; }
+.tt { display: grid; grid-template-columns: 44px repeat(5, minmax(0, 1fr)); gap: 5px; margin-bottom: 18px; }
+.tth { text-align: center; font-size: 13px; font-weight: 700; color: var(--ink-3); padding: 2px 0 4px; }
+.tth.today { color: var(--accent); }
+.ttn { display: flex; flex-direction: column; justify-content: center; font-size: 13px; line-height: 1.15; color: var(--ink-2); }
+.ttn small { font-size: 11px; color: var(--ink-3); }
+.ttc { height: 44px; border: 1px dashed var(--line); border-radius: 10px; font: inherit; font-size: 14px; font-weight: 700; padding: 0 2px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.ttc[class*=" c"] { border-style: solid; border-color: transparent; }
+.ttc:not([class*=" c"]) { background: var(--surface); }
+.ttc.cur { outline: 2.5px solid var(--accent); outline-offset: 1px; }
+.lrow.bell { gap: 8px; }
+.lrow.bell input.dateinp { width: 92px; padding: 6px; }
+.bellbtns { justify-content: space-between; }
+.link.danger { color: var(--neg); }
+.hidrow { gap: 22px; flex-wrap: wrap; }

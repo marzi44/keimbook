@@ -8,7 +8,7 @@ const PUBLIC_KEY = {
   x: 'kHkzCWyGjuxGxGf_3AMH2F_MKEWEjH1hfCnBf7K1Imo',
   y: 'Fv556fMFzralLJTUqYxNxI68b9Fd4ctkLzgn07BzKj0'
 };
-const APP_VERSION = '5.1';
+const APP_VERSION = '5.2';
 
 const TYPES = {
   ma: { label: 'Mitarbeit', long: 'Mitarbeit', icon: 'spark', vals: [['+', '+', 'g'], ['~', '~', 'm'], ['-', '−', 'b']] },
@@ -282,6 +282,7 @@ function lockNow() {
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') { hiddenAt = Date.now(); return; }
   if (lockCfg && !locked && hiddenAt && Date.now() - hiddenAt >= (lockCfg.after ?? 1) * 60000) lockNow();
+  else if (hiddenAt && Date.now() - hiddenAt >= 5 * 60000) lessonJump();
 });
 
 /* ---------- Sicherungspasswort: gespeichert wird nur der daraus abgeleitete Schlüssel (bei PIN-Sperre verschlüsselt) ---------- */
@@ -461,6 +462,7 @@ function render() {
   else if (view === 'verwalten') { key = 'man'; html = viewManage(); }
   else if (view === 'einstellungen') { key = 'set'; html = viewSettings(); }
   else if (view === 'hilfe') { key = 'help'; html = viewHelp(); }
+  else if (view === 'stundenplan') { key = 'plan'; html = viewPlan(); }
   else {
     if (location.hash && location.hash !== '#/') history.replaceState(null, '', '#/');
     key = 'home'; html = viewHome();
@@ -503,10 +505,10 @@ function viewHome() {
   const hidden = [...data.classes].filter(c => c.hidden).sort(byName);
   const list = visible.length ? `<div class="card">${visible.map(c => classItem(c)).join('')}</div>`
     : `<div class="card empty"><h2>Alle Klassen ausgeblendet</h2><p>Tippe unten auf „ausgeblendet“, um sie wieder einzublenden.</p></div>`;
-  return hero + yearHint() + list + `
+  return hero + yearHint() + nowCard() + list + `
     <button class="btn secondary block mt" data-a="addClass">${ICON.plus} Neue Klasse</button>
     ${hidden.length ? `<div class="hidrow"><button class="link" data-a="goManage">${ICON.eyeOff} ${plural(hidden.length, 'Klasse', 'Klassen')} ausgeblendet</button></div>` : ''}
-    <div class="hidrow"><button class="link" data-a="goHelp">${ICON.help} Hilfe</button></div>`;
+    <div class="hidrow"><button class="link" data-a="goPlan">${ICON.list} Stundenplan</button><button class="link" data-a="goHelp">${ICON.help} Hilfe</button></div>`;
 }
 
 function classItem(c, isHidden = false) {
@@ -1337,6 +1339,81 @@ function trendCard(c, sid) {
 }
 
 /* ---------- Einstellungen ---------- */
+/* ---------- Stundenplan ---------- */
+// Übliche Stundenzeiten als Vorschlag – jede Schule stellt ihre eigenen ein.
+const BELLS = [['07:55', '08:45'], ['08:50', '09:40'], ['09:55', '10:45'], ['10:50', '11:40'], ['11:45', '12:35'], ['12:40', '13:30'], ['13:35', '14:25'], ['14:25', '15:15'], ['15:15', '16:05'], ['16:05', '16:55']];
+const WD = ['Mo', 'Di', 'Mi', 'Do', 'Fr'];
+const bells = () => (data.prefs && data.prefs.bells) || BELLS;
+const plan = () => (data.plan || []).filter(p => getClass(p.c) && p.h < bells().length);
+const planAt = (wd, h) => plan().find(p => p.wd === wd && p.h === h);
+const hm = d => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+const addMin = (t, m) => { const [a, b] = t.split(':').map(Number), x = Math.max(0, Math.min(1439, a * 60 + b + m)); return `${String(Math.floor(x / 60)).padStart(2, '0')}:${String(x % 60).padStart(2, '0')}`; };
+// Stundenblöcke eines Tages: aufeinanderfolgende Stunden derselben Klasse = Doppelstunde
+function dayBlocks(wd) {
+  const b = bells(), out = [];
+  for (let h = 0; h < b.length; h++) {
+    const p = planAt(wd, h); if (!p) continue;
+    const last = out[out.length - 1];
+    if (last && last.c.id === p.c && last.end === h - 1) { last.end = h; last.to = b[h][1]; continue; }
+    out.push({ c: getClass(p.c), h, end: h, from: b[h][0], to: b[h][1] });
+  }
+  return out;
+}
+// Welche Stunde läuft gerade – oder beginnt in den nächsten 10 Minuten bzw. hat vor höchstens 5 Minuten geendet?
+function nowLesson(d = new Date()) {
+  const wd = d.getDay(); if (wd < 1 || wd > 5) return null;
+  const t = hm(d), bl = dayBlocks(wd);
+  const run = bl.find(x => t >= x.from && t < x.to); if (run) return { ...run, soon: false };
+  const next = bl.find(x => t < x.from && t >= addMin(x.from, -10)); if (next) return { ...next, soon: true };
+  const prev = [...bl].reverse().find(x => t >= x.to && t < addMin(x.to, 5)); if (prev) return { ...prev, soon: false };
+  return null;
+}
+const lessonLabel = l => `${l.h + 1}.${l.end > l.h ? `–${l.end + 1}.` : ''} Stunde · ${l.soon ? 'ab ' + l.from : 'bis ' + l.to}`;
+function nowCard() {
+  const l = nowLesson(); if (!l) return '';
+  return `<button class="nowcard" data-a="openLesson" data-c="${l.c.id}"><span class="ctile ${avc(l.c.name)}">${esc(shortClass(l.c.name))}</span>
+    <span class="grow"><span class="nlab">${l.soon ? 'Gleich' : 'Jetzt'} · ${esc(lessonLabel(l))}</span><span class="ntitle">${esc(l.c.name)}</span></span>${ICON.chev}</button>`;
+}
+// Beim Öffnen (und nach längerer Pause) direkt in die aktuelle Stunde – je Stunde nur einmal
+let lastJump = '';
+function lessonJump() {
+  if (!license || locked || $('#dlg').open || (data.prefs && data.prefs.planOpen === false)) return;
+  const l = nowLesson(); if (!l) return;
+  const key = `${today()}|${l.h}|${l.c.id}`; if (key === lastJump) return;
+  const [v, a] = location.hash.replace(/^#\/?/, '').split('/');
+  if (v && v !== 'k' && v !== 's') return;            // nicht aus Einstellungen, Hilfe usw. herausreißen
+  lastJump = key;
+  if ((v === 'k' || v === 's') && a === l.c.id) return;
+  const back = location.hash || '#/';
+  ui.tab = 'e'; ui.date = today(); saveUi();
+  location.hash = '#/k/' + l.c.id;
+  toast(`${l.soon ? 'Gleich' : 'Jetzt'}: ${l.c.name}`, v ? { label: 'Zurück', fn: () => { location.hash = back; } } : null);
+}
+function viewPlan() {
+  const back = ui.planBack && ui.planBack.startsWith('#/einstellungen') ? ['#/einstellungen', 'Einstellungen'] : ['#/', 'Klassen'];
+  setHeader({ title: 'Stundenplan', back: back[0], backLabel: back[1] });
+  const b = bells(), on = !(data.prefs && data.prefs.planOpen === false), nowL = nowLesson(), wdNow = new Date().getDay();
+  const cell = (wd, h) => {
+    const p = planAt(wd, h), c = p && getClass(p.c), cur = nowL && wd === wdNow && h >= nowL.h && h <= nowL.end;
+    return `<button class="ttc${c ? ' ' + avc(c.name) : ''}${cur ? ' cur' : ''}" data-a="planCell" data-wd="${wd}" data-h="${h}" aria-label="${WD[wd - 1]}, ${h + 1}. Stunde: ${c ? esc(c.name) : 'frei'}">${c ? esc(shortClass(c.name)) : ''}</button>`;
+  };
+  return `<div class="hero"><h1>Stundenplan</h1><div class="sub">Feld antippen und Klasse wählen. Zwei gleiche Stunden hintereinander gelten als Doppelstunde.</div></div>
+    ${data.classes.length ? '' : '<div class="hintcard"><div class="hl">Lege zuerst eine Klasse an – dann kannst du sie hier eintragen.</div></div>'}
+    <div class="tt"><div class="tth"></div>${WD.map((d, i) => `<div class="tth${i + 1 === wdNow ? ' today' : ''}">${d}</div>`).join('')}
+      ${b.map(([f], h) => `<div class="ttn"><b>${h + 1}.</b><small>${esc(f)}</small></div>${[1, 2, 3, 4, 5].map(wd => cell(wd, h)).join('')}`).join('')}</div>
+    <div class="section">Beim Öffnen</div>
+    <div class="card"><div class="lrow static"><span class="licon">${ICON.spark}</span><span class="grow">Direkt zur aktuellen Stunde</span>
+      <div class="mini-seg compact"><button class="${on ? 'on' : ''}" data-a="planOpen" data-v="1" aria-pressed="${on}">Ein</button><button class="${on ? '' : 'on'}" data-a="planOpen" data-v="0" aria-pressed="${!on}">Aus</button></div></div></div>
+    <p class="fine">Öffnest du KeimBook während einer Stunde (oder bis 10 Minuten davor), springt die App direkt in diese Klasse – Reiter Eintragen, heutiges Datum. Auf der Startseite steht oben immer die aktuelle Stunde.</p>
+    <div class="section">Stundenzeiten</div>
+    <div class="card">${b.map(([f, t], h) => `<div class="lrow static bell"><span class="grow">${h + 1}. Stunde</span>
+      <input class="dateinp" type="time" value="${esc(f)}" data-ch="setBell" data-i="${h}" data-k="0" aria-label="${h + 1}. Stunde Beginn">
+      <span class="muted">–</span><input class="dateinp" type="time" value="${esc(t)}" data-ch="setBell" data-i="${h}" data-k="1" aria-label="${h + 1}. Stunde Ende"></div>`).join('')}
+      <div class="lrow static bellbtns"><button class="link small" data-a="bellAdd">${ICON.plus} Stunde</button>${b.length > 1 ? '<button class="link small danger" data-a="bellDel">Letzte entfernen</button>' : ''}</div></div>
+    <p class="fine">Trag die Zeiten deiner Schule ein. Vorgeschlagen sind übliche Zeiten.</p>
+    ${plan().length ? '<div class="card mt"><button class="lrow danger" data-a="planClear"><span class="licon">' + ICON.trash + '</span><span class="grow">Stundenplan leeren</span></button></div>' : ''}`;
+}
+
 /* ---------- Hilfe: häufige Fragen (offline, durchsuchbar) ---------- */
 const HELP = [
   ['Erste Schritte', [
@@ -1352,6 +1429,7 @@ const HELP = [
     ['Warum kann ich ein Kind nicht benoten?', 'Es ist an diesem Tag als <b>abwesend</b> eingetragen. Ändere bei Bedarf zuerst die Anwesenheit.'],
     ['Wie trage ich für einen anderen Tag nach?', 'Mit den <b>Pfeilen neben dem Datum</b> – oder über <b>„Wochenüberblick“</b> direkt einen Tag antippen. „Zurück zu heute“ springt zurück.'],
     ['Wie geht es schneller bei vielen Kindern?', '<b>„Alle übrigen anwesend“</b> bzw. <b>„Alle übrigen +“</b> trägt den Rest auf einmal ein. Ab 10 Kindern gibt es <b>„Name suchen …“</b>, und im <b>Sitzplan</b> tippst du direkt auf den Platz.'],
+    ['Wie trage ich meinen Stundenplan ein?', 'Startseite ganz unten <b>„Stundenplan“</b> → Feld antippen und Klasse wählen. Darunter die <b>Stundenzeiten</b> deiner Schule einstellen. Dann steht auf der Startseite oben die <b>aktuelle Stunde</b>, und beim Öffnen springt die App direkt in diese Klasse (abschaltbar).'],
     ['Wie richte ich den Sitzplan ein?', 'Über der Liste auf <b>Sitzplan</b> umschalten → <b>„Sitzplan bearbeiten“</b> → Anzahl der Spalten wählen und zwei Plätze nacheinander antippen, um sie zu tauschen.'],
     ['Wie funktioniert „Wer kommt dran?“', 'Die App zieht zufällig ein Kind – bevorzugt jene mit wenigen Noten in der Kategorie. Abwesende und Kinder mit Note von heute werden übersprungen.'],
     ['Wo notiere ich ein Elterngespräch?', 'Beim Kind auf <b>„+ Gespräch“</b> (oder <b>••• → „Gespräch notieren“</b>). Gespräche zählen nicht zur Note, erscheinen aber im Einzel-PDF.']]],
@@ -1386,7 +1464,7 @@ const HELP_KW = {
   'iPhone oder iPad': 'apple ios installation app', 'Android': 'samsung tablet installation app', 'WebUntis?': 'import csv excel liste schülerliste',
   'ohne WebUntis': 'namen eintippen schüler', 'Gruppe': 'religion wahlpflicht mischen', 'vertippt': 'falsch fehler löschen korrigieren',
   '„P“': 'passiv keine leistung', 'nicht benoten': 'abwesend krank fehlt', 'anderen Tag': 'nachtragen datum gestern vergangen',
-  'schneller': 'alle suche suchen', 'Sitzplan': 'plätze sitzordnung', 'Wer kommt dran': 'zufall zufällig prüfen wiederholung',
+  'schneller': 'alle suche suchen', 'Sitzplan': 'plätze sitzordnung', 'Stundenplan': 'stunden zeiten uhrzeit automatisch öffnen aktuelle klasse doppelstunde', 'Wer kommt dran': 'zufall zufällig prüfen wiederholung',
   'notiere ich': 'eltern sprechtag gespräch notiz', 'Gesamtnote?': 'durchschnitt schnitt gewichtung prozent rechnen',
   'Notenvorschlag': 'zeugnis knapp', 'eigener Skala': 'punkte notengrenzen skala', 'Sem.': 'semester halbjahr', 'rote': 'gefährdet frühwarnung nicht genügend',
   'PDF für ein Elterngespräch': 'drucken sprechtag', 'Notenkonferenz': 'konferenz zeugnis excel', 'Datei am iPhone': 'dateien icloud speichern teilen',
@@ -1429,7 +1507,8 @@ function viewSettings() {
   setHeader({ title: 'Einstellungen', back: '#/', backLabel: 'Klassen' });
   const exp = license.info.x ? 'bis ' + dt(license.info.x).toLocaleDateString('de-AT') : 'unbefristet';
   return `<div class="hero"><h1>Einstellungen</h1></div>
-    <div class="card"><button class="lrow" data-a="goHelp"><span class="licon">${ICON.help}</span><span class="grow">Hilfe und häufige Fragen</span>${ICON.chev}</button></div>
+    <div class="card"><button class="lrow" data-a="goHelp"><span class="licon">${ICON.help}</span><span class="grow">Hilfe und häufige Fragen</span>${ICON.chev}</button>
+      <button class="lrow" data-a="goPlan"><span class="licon">${ICON.list}</span><span class="grow">Stundenplan</span><span class="muted">${plan().length ? plural(plan().length, 'Stunde', 'Stunden') : 'leer'}</span>${ICON.chev}</button></div>
 
     <div class="section">Datensicherung</div>
     <div class="card">
@@ -1560,7 +1639,7 @@ async function yearWizard() {
     title: `Schuljahr ${label} abschließen`, ok: 'Weiter',
     text: 'In drei Schritten startest du sauber ins neue Schuljahr:',
     body: `<ol class="ysteps"><li><b>Archiv sichern</b> – alle Daten verschlüsselt in eine Datei, z. B. in iCloud Drive. Damit kannst du später alles nachweisen.</li>
-      <li><b>Klassen übernehmen</b> – mit neuem Namen (z. B. 3B → 4B) oder löschen. Schüler:innen, Bewertung, Kategorien und Sitzplan bleiben.</li>
+      <li><b>Klassen übernehmen</b> – mit neuem Namen (z. B. 3B → 4B) oder löschen. Schüler:innen, Bewertung, Kategorien und Sitzplan bleiben. Den Stundenplan trägst du neu ein.</li>
       <li><b>Alte Daten löschen</b> – ${esc(plural(o.entries, 'Eintrag', 'Einträge'))}${o.talks ? `, ${esc(plural(o.talks, 'Gespräch bzw. Frühwarnung', 'Gespräche bzw. Frühwarnungen'))}` : ''}${o.days ? ` und ${esc(plural(o.days, 'Stundenthema', 'Stundenthemen'))}` : ''} vor dem 1. September werden vom Gerät entfernt.</li></ol>`
   })) return;
   // 2 · Archiv
@@ -1612,6 +1691,7 @@ function applyYearChange(plan) {
   }
   data.entries = data.entries.filter(e => !gone.has(e.c) && e.d >= a);
   data.days = days().filter(x => !gone.has(x.c) && x.d >= a);
+  data.plan = [];  // neues Schuljahr – neuer Stundenplan
   data.prefs = Object.assign({}, data.prefs, { yearDone: yearLabel() }); delete data.prefs.yearSnooze;
 }
 
@@ -2415,6 +2495,43 @@ const actions = {
   },
   goSettings() { location.hash = '#/einstellungen'; },
   goHelp() { ui.helpBack = location.hash || '#/'; location.hash = '#/hilfe'; },
+  goPlan() { ui.planBack = location.hash || '#/'; location.hash = '#/stundenplan'; },
+  openLesson(d) { ui.tab = 'e'; ui.date = today(); saveUi(); location.hash = '#/k/' + d.c; },
+  async planCell(d) {
+    const wd = Number(d.wd), h = Number(d.h), cur = planAt(wd, h);
+    if (!data.classes.length) return toast('Lege zuerst eine Klasse an');
+    const opts = [...data.classes].filter(c => !c.hidden || (cur && cur.c === c.id)).sort(byName).map(c => [c.id, c.name]);
+    if (cur) opts.push(['-', 'Frei (keine Stunde)', true]);
+    const k = await modal({ title: `${['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag'][wd - 1]}, ${h + 1}. Stunde`, text: bells()[h].join(' – '), options: opts });
+    if (!k) return;
+    data.plan = (data.plan || []).filter(p => !(p.wd === wd && p.h === h));
+    if (k !== '-') data.plan.push({ wd, h, c: k });
+    await save(); render();
+  },
+  async planOpen(d) { data.prefs = Object.assign({}, data.prefs, { planOpen: d.v === '1' }); await save(); render(); },
+  async setBell(inp) {
+    const b = bells().map(x => [...x]), i = Number(inp.dataset.i), k = Number(inp.dataset.k);
+    if (!/^\d\d:\d\d$/.test(inp.value)) return render();
+    b[i][k] = inp.value;
+    if (b[i][0] >= b[i][1]) toast('Achtung: Ende liegt vor dem Beginn');
+    data.prefs = Object.assign({}, data.prefs, { bells: b }); await save();
+  },
+  async bellAdd() {
+    const b = bells().map(x => [...x]), last = b[b.length - 1];
+    b.push([addMin(last[1], 5), addMin(last[1], 55)]);
+    data.prefs = Object.assign({}, data.prefs, { bells: b }); await save(); render();
+  },
+  async bellDel() {
+    const b = bells().map(x => [...x]); if (b.length < 2) return;
+    const h = b.length - 1, used = plan().filter(p => p.h === h).length;
+    if (used && !await modal({ title: `${h + 1}. Stunde entfernen?`, text: `Sie ist ${used}× im Stundenplan eingetragen – diese Einträge werden entfernt.`, ok: 'Entfernen', danger: true })) return;
+    b.pop(); data.plan = (data.plan || []).filter(p => p.h < b.length);
+    data.prefs = Object.assign({}, data.prefs, { bells: b }); await save(); render();
+  },
+  async planClear() {
+    if (!await modal({ title: 'Stundenplan leeren?', text: 'Alle eingetragenen Stunden werden entfernt. Die Stundenzeiten bleiben.', ok: 'Leeren', danger: true })) return;
+    data.plan = []; await save(); render();
+  },
   async introAgain() { await introCheck(true); },
   setPeriod(d) { ui.period = d.v; saveUi(); render(); },
   setLayout(d) { ui.layout = d.v; ui.seatEdit = false; ui.seatSel = null; saveUi(); render(); },
@@ -2520,7 +2637,7 @@ const actions = {
     const pin = pinBuf;
     if (await tryUnlock(pin)) {
       pinBuf = ''; lsSet('kb.pinTries', { n: 0, until: 0 });
-      render(); setTimeout(backupCheck, 800);
+      render(); lessonJump(); setTimeout(backupCheck, 800);
     } else {
       const n = t.n + 1;
       lsSet('kb.pinTries', { n, until: n >= 5 ? Date.now() + 30000 * 2 ** (n - 5) : 0 });
@@ -3129,6 +3246,7 @@ async function start() {
   }
   backup = Object.assign({ last: 0, snooze: 0 }, await DB.get('backup').catch(() => null));
   render();
+  lessonJump();
   setTimeout(() => { introCheck().then(backupCheck).then(archiveCheck); }, 900);
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => { });
 }
