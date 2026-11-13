@@ -8,7 +8,7 @@ const PUBLIC_KEY = {
   x: 'kHkzCWyGjuxGxGf_3AMH2F_MKEWEjH1hfCnBf7K1Imo',
   y: 'Fv556fMFzralLJTUqYxNxI68b9Fd4ctkLzgn07BzKj0'
 };
-const APP_VERSION = '5.5';
+const APP_VERSION = '5.6';
 
 const TYPES = {
   ma: { label: 'Mitarbeit', long: 'Mitarbeit', icon: 'spark', vals: [['+', '+', 'g'], ['~', '~', 'm'], ['-', '−', 'b']] },
@@ -1516,6 +1516,8 @@ function testGrade(c, t, p) {
 // Mindestpunkte je Note (auf halbe Punkte aufgerundet)
 const keyPoints = (c, t) => testKey(c, t).map(k => Math.ceil(k * t.max / 100 * 2) / 2);
 const fmtPts = p => String(p).replace('.', ',');
+// Anmerkung für Exporte: bei Hausübungen samt HÜ-Thema des Tages
+const noteFull = (c, e) => [e.t === 'hu' && dayInfo(c.id, e.d).hu ? 'HÜ: ' + dayInfo(c.id, e.d).hu : '', e.n || ''].filter(Boolean).join(' · ');
 function syncTest(c, t) {
   const pre = 'sa-' + t.id + '-';
   data.entries = data.entries.filter(e => !String(e.id).startsWith(pre));
@@ -1540,6 +1542,49 @@ function spiegelHTML(c, t) {
   return `<div class="spiegel">${st.dist.map((n, i) => `<div class="sp"><div class="spbar"><i class="g${i + 1} h${Math.round(n / mx * 10) * 10}"></i></div><b>${n}</b><span>${['Sehr gut', 'Gut', 'Befr.', 'Genügend', 'Nicht gen.'][i]}</span></div>`).join('')}</div>
     <div class="spsum"><span>Ø <b>${st.avg == null ? '–' : fmtNum(st.avg)}</b></span><span>${st.n} von ${c.students.length} geschrieben</span>${st.dist[4] ? `<span class="b-t">${st.dist[4]}× Nicht genügend</span>` : ''}</div>
     ${st.missing.length && st.n ? `<p class="fine">Noch ohne Punkte: ${st.missing.map(s => esc(s.name)).join(', ')}</p>` : ''}`;
+}
+// Notenspiegel als PDF – ohne Namen (z. B. für die Schulleitung) oder als Ergebnisliste mit Namen
+function testPDF(c, t, names) {
+  const k = pdfKit(), { W, H, M, COL } = k, st = testStats(c, t), K = testKey(c, t), KP = keyPoints(c, t);
+  let y = M;
+  k.text(M, y + 8, names ? 'ERGEBNISLISTE' : 'NOTENSPIEGEL', { size: 8, bold: true, color: COL.acc }); y += 34;
+  k.text(M, y, t.title, { size: 22, bold: true }); y += 18;
+  k.text(M, y, `${c.name} · ${fmtDayLong(t.d)} · zählt als ${typeOf(c, t.cat).label}${t.w > 1 ? ` · Gewicht ×${t.w}` : ''}`, { size: 9, color: COL.ink2 }); y += 14;
+  k.text(M, y, `Höchstpunkte ${fmtPts(t.max)} · Notenschlüssel: ` + K.map((p, i) => `${i + 1} ab ${fmtPts(p)} % (${fmtPts(KP[i])} P.)`).join(', ') + `, 5 unter ${fmtPts(KP[3])} P.`, { size: 7.5, color: COL.ink3 }); y += 26;
+  // Balken
+  const bw = 70, gap = 26, bh = 120, x0 = M + (W - 2 * M - (5 * bw + 4 * gap)) / 2, mx = Math.max(1, ...st.dist), cols = [COL.pos, COL.pos, COL.mid, COL.mid, COL.neg];
+  const lbl = ['Sehr gut', 'Gut', 'Befriedigend', 'Genügend', 'Nicht genügend'];
+  st.dist.forEach((n, i) => {
+    const x = x0 + i * (bw + gap), h = n / mx * bh;
+    k.rect(x, y, bw, bh, COL.card);
+    if (n) k.rect(x, y + bh - h, bw, h, cols[i]);
+    k.text(x + bw / 2 - k.wid(String(n), 16, true) / 2, y + bh + 20, String(n), { size: 16, bold: true });
+    k.text(x + bw / 2 - k.wid(`${i + 1} · ${lbl[i]}`, 7.5) / 2, y + bh + 33, `${i + 1} · ${lbl[i]}`, { size: 7.5, color: COL.ink2 });
+  });
+  y += bh + 56;
+  k.rect(M, y, W - 2 * M, 44, COL.accS);
+  const box = [['Durchschnitt', st.avg == null ? '–' : fmtNum(st.avg)], ['geschrieben', `${st.n} von ${c.students.length}`], ['Nicht genügend', String(st.dist[4])],
+    ['Punkte Ø', st.n ? fmtPts(Math.round(c.students.reduce((a, s) => a + ((t.pts || {})[s.id] ?? 0), 0) / st.n * 10) / 10) : '–']];
+  box.forEach(([l, v], i) => { const x = M + 14 + i * ((W - 2 * M) / 4); k.text(x, y + 17, l.toUpperCase(), { size: 7, bold: true, color: COL.acc }); k.text(x, y + 35, v, { size: 13, bold: true }); });
+  y += 64;
+  if (names) {
+    const head = () => { k.rect(M, y, W - 2 * M, 20, COL.accS); const o = { size: 8, bold: true, color: COL.acc };
+      k.text(M + 8, y + 13.5, 'NAME', o); k.text(M + 260, y + 13.5, 'PUNKTE', o); k.text(M + 340, y + 13.5, 'PROZENT', o); k.text(M + 420, y + 13.5, 'NOTE', o); y += 20; };
+    head();
+    [...c.students].sort(byName).forEach((s, i) => {
+      if (y + 20 > H - M - 20) { k.page(); y = M + 6; head(); }
+      const p = (t.pts || {})[s.id], g = testGrade(c, t, p), late = (t.late || {})[s.id];
+      if (i % 2) k.rect(M, y, W - 2 * M, 20, COL.zebra);
+      k.text(M + 8, y + 13.5, k.fit(s.name + (late ? ` (nachgeschr. ${fmtDay(late)})` : ''), 240, 9.5), { size: 9.5 });
+      k.text(M + 260, y + 13.5, p == null ? '–' : fmtPts(p), { size: 9.5, color: p == null ? COL.ink3 : COL.ink });
+      k.text(M + 340, y + 13.5, p == null ? '' : fmtNum(testPct(t, p)) + ' %', { size: 9.5, color: COL.ink2 });
+      k.text(M + 420, y + 13.5, g ? String(g) : 'nicht geschrieben', { size: g ? 11 : 8.5, bold: !!g, color: g ? k.gc(g) : COL.ink3 });
+      y += 20;
+    });
+  } else {
+    k.text(M, y, 'Ohne Namen – zur Weitergabe z. B. an die Schulleitung geeignet.', { size: 8, color: COL.ink3 });
+  }
+  return k.build(`${names ? 'Ergebnisliste' : 'Notenspiegel'} ${t.title} ${c.name}`, `KeimBook · ${c.name} · ${t.title}`);
 }
 function viewTests(c) {
   setHeader({ title: 'Schularbeiten', back: '#/k/' + c.id, backLabel: c.name });
@@ -2228,7 +2273,7 @@ function studentTrendXLSX(c, s) {
   return xlsxBook([
     { name: 'Übersicht', head: ['Kennzahl', 'Wert'], rows: kv, widths: [26, 40], num: [1] },
     { name: 'Verlauf', head: ['Datum', 'Gesamtnote'], rows: r.tr.ser.map(p => [ddmmyyyy(p.d), p.v]), widths: [12, 12], num: [1] },
-    { name: 'Einträge', head: ['Datum', 'Kategorie', 'Wert', 'Gewicht', 'Anmerkung'], rows: es.map(e => [ddmmyyyy(e.d), typeOf(c, e.t).label, /^[1-5]$/.test(e.v) ? +e.v : e.t === 'vh' ? 'Vermerk' : entryValue(c, e), e.w || 1, kindOf(c, e.t) === 'text' ? '' : e.n || '']), widths: [12, 22, 18, 9, 50], num: [] },
+    { name: 'Einträge', head: ['Datum', 'Kategorie', 'Wert', 'Gewicht', 'Anmerkung'], rows: es.map(e => [ddmmyyyy(e.d), typeOf(c, e.t).label, /^[1-5]$/.test(e.v) ? +e.v : e.t === 'vh' ? 'Vermerk' : entryValue(c, e), e.w || 1, kindOf(c, e.t) === 'text' ? '' : noteFull(c, e)]), widths: [12, 22, 18, 9, 50], num: [] },
     { name: 'Gespräche', head: ['Datum', 'Mit', 'Inhalt'], rows: (s.talks || []).filter(x => inPeriod(x.d)).sort((a, b) => a.d.localeCompare(b.d)).map(x => [ddmmyyyy(x.d), TALK_WHO[x.who] || '', x.v]), widths: [12, 14, 80], num: [] }
   ]);
 }
@@ -2403,7 +2448,7 @@ function catXLSX(c, keys) {
     ...all.map(a => ({ name: sheetName(a.t.label), head: ['Name', ...a.dates.map(ddmmyyyy)], widths: [28, ...a.dates.map(() => 11)], num: [],
       rows: a.rows.map(r => [r.s.name, ...a.dates.map(d => dayCell(c, r.es, d))]) })),
     { name: 'Einträge', head: ['Datum', 'Name', 'Kategorie', 'Wert', 'Gewicht', 'Anmerkung'], widths: [12, 28, 18, 18, 9, 50], num: [],
-      rows: all.flatMap((a, ai) => a.rows.flatMap(r => r.es.map(e => ({ d: e.d, ai, row: [ddmmyyyy(e.d), r.s.name, a.t.label, cellVal(c, e), e.w || 1, a.kind === 'text' || a.k === 'vh' ? '' : e.n || ''] }))))
+      rows: all.flatMap((a, ai) => a.rows.flatMap(r => r.es.map(e => ({ d: e.d, ai, row: [ddmmyyyy(e.d), r.s.name, a.t.label, cellVal(c, e), e.w || 1, a.kind === 'text' || a.k === 'vh' ? '' : noteFull(c, e)] }))))
         .sort((x, y) => x.d.localeCompare(y.d) || x.ai - y.ai).map(x => x.row) }
   ]);
 }
@@ -2414,7 +2459,7 @@ function catXLSX1(c, k) {
   return xlsxBook([
     { name: 'Übersicht', head: ['Name', 'Herkunft', ...sumHead], rows: rows.map(r => [r.s.name, r.s.from || '', ...r.sum.map(x => fmtCell(x[1]))]), widths: [28, 12, ...sumHead.map(() => 16)], num: sumHead.map((h, i) => h === 'Ø' ? 2 + i : -1) },
     { name: 'Tabelle', head: ['Name', ...dates.map(ddmmyyyy)], rows: rows.map(r => [r.s.name, ...dates.map(d => dayCell(c, r.es, d))]), widths: [28, ...dates.map(() => 11)], num: [] },
-    { name: 'Einträge', head: ['Datum', 'Name', 'Wert', 'Gewicht', 'Anmerkung'], rows: rows.flatMap(r => r.es.map(e => [ddmmyyyy(e.d), r.s.name, cellVal(c, e), e.w || 1, kindOf(c, k) === 'text' || k === 'vh' ? '' : e.n || ''])).sort((a, b) => a[0].split('.').reverse().join().localeCompare(b[0].split('.').reverse().join())), widths: [12, 28, 18, 9, 50], num: [] }
+    { name: 'Einträge', head: ['Datum', 'Name', 'Wert', 'Gewicht', 'Anmerkung'], rows: rows.flatMap(r => r.es.map(e => [ddmmyyyy(e.d), r.s.name, cellVal(c, e), e.w || 1, kindOf(c, k) === 'text' || k === 'vh' ? '' : noteFull(c, e)])).sort((a, b) => a[0].split('.').reverse().join().localeCompare(b[0].split('.').reverse().join())), widths: [12, 28, 18, 9, 50], num: [] }
   ]);
 }
 function catSection(kit, c, k, eyebrow) {
@@ -2583,7 +2628,7 @@ function studentTrendPDF(c, s) {
       if (y + 18 > H - M - 20) { k.page(); y = M; eHead(); }
       if (i % 2) k.rect(M, y, W - 2 * M, 18, COL.zebra);
       const t = typeOf(c, e.t), kind = kindOf(c, e.t);
-      const noteTxt = kind === 'text' ? '' : e.n || '';
+      const noteTxt = kind === 'text' ? '' : noteFull(c, e);
       k.text(M + 8, y + 12.5, fmtDay(e.d), { size: 8.5, color: COL.ink2 });
       k.text(M + 80, y + 12.5, k.fit(t.label, 125, 8.5), { size: 8.5 });
       k.text(M + 210, y + 12.5, k.fit(entryValue(c, e) + (e.w && e.w !== 1 ? ` (×${fmtW(e.w)})` : ''), 85, 8.5, true), { size: 8.5, bold: true, color: isAbs(e.v) ? COL.ink3 : COL.ink });
@@ -2826,7 +2871,8 @@ const actions = {
   async testW(d) { const c = currentClass(), t = c && getTest(c, location.hash.split('/')[3]); if (!t) return; t.w = Number(d.v); if (t.w === 1) delete t.w; syncTest(c, t); await save(); render(); },
   async testMenu() {
     const c = currentClass(), t = c && getTest(c, location.hash.split('/')[3]); if (!t) return;
-    const k = await modal({ title: t.title, options: [['copy', 'Notenspiegel kopieren'], ['del', 'Arbeit löschen', true]], cancel: 'Schließen' });
+    const k = await modal({ title: t.title, options: [['pdf', 'Notenspiegel als PDF (ohne Namen)'], ['list', 'Ergebnisliste als PDF (mit Namen)'], ['copy', 'Notenspiegel kopieren'], ['del', 'Arbeit löschen', true]], cancel: 'Schließen' });
+    if (k === 'pdf' || k === 'list') return saveFile(`${k === 'pdf' ? 'Notenspiegel' : 'Ergebnisliste'}_${safeName(t.title)}_${safeName(c.name)}.pdf`, 'application/pdf', testPDF(c, t, k === 'list'));
     if (k === 'copy') {
       const st = testStats(c, t);
       const txt = `${c.name} · ${t.title} (${fmtDay(t.d)})\n` + st.dist.map((n, i) => `${i + 1}: ${n}`).join('   ') + `\nØ ${st.avg == null ? '–' : fmtNum(st.avg)} · ${st.n} von ${c.students.length} geschrieben · Höchstpunkte ${fmtPts(t.max)}`;
@@ -3486,7 +3532,7 @@ const actions = {
       .forEach(e => rows.push([e.d.split('-').reverse().join('.'), names[e.s], (typeOf(c, e.t) || { long: e.t }).long,
         e.t === 'hu' ? (e.v === 'y' ? 'gebracht' : 'nicht gebracht') : e.t === 'vh' ? 'Vermerk'
           : kindOf(c, e.t) === 'num' ? withUnit(e.v, typeOf(c, e.t).unit) : kindOf(c, e.t) === 'text' ? e.v : valInfo(c, e.t, e.v)[1],
-        e.w ? fmtW(e.w) : '1', e.n || '']));
+        e.w ? fmtW(e.w) : '1', kindOf(c, e.t) === 'text' ? '' : noteFull(c, e)]));
     saveFile(`Einträge_${safeName(c.name)}_${periodFile()}.csv`, 'text/csv', toCSV(rows));
   },
   async exportBackup() { await writeBackup(`KeimBook-Sicherung_${today()}.json`); },
