@@ -887,3 +887,26 @@ button.link.inl { padding: 0; font-size: inherit; display: inline; color: var(--
 .bellbtns { justify-content: space-between; }
 .link.danger { color: var(--neg); }
 .hidrow { gap: 22px; flex-wrap: wrap; }
+
+/* ---------- Schularbeiten mit Punkten ---------- */
+.card.pad { padding: 14px 16px; }
+.spiegel { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; text-align: center; }
+.sp b { display: block; font-size: 18px; margin-top: 4px; }
+.sp span { display: block; font-size: 11.5px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.spbar { height: 70px; display: flex; align-items: flex-end; justify-content: center; background: var(--fill); border-radius: 8px; overflow: hidden; }
+.spbar i { display: block; width: 100%; border-radius: 6px 6px 0 0; }
+.spbar i.g1, .spbar i.g2 { background: var(--pos); } .spbar i.g3, .spbar i.g4 { background: var(--mid); } .spbar i.g5 { background: var(--neg); }
+.spbar i.h0 { height: 0; } .spbar i.h10 { height: 10%; } .spbar i.h20 { height: 20%; } .spbar i.h30 { height: 30%; } .spbar i.h40 { height: 40%; } .spbar i.h50 { height: 50%; }
+.spbar i.h60 { height: 60%; } .spbar i.h70 { height: 70%; } .spbar i.h80 { height: 80%; } .spbar i.h90 { height: 90%; } .spbar i.h100 { height: 100%; }
+.spsum { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 12px; font-size: 14px; color: var(--ink-2); }
+.spsum b { color: var(--ink); }
+.ptsrow { display: flex; align-items: center; gap: 10px; }
+.ptsrow .sname { flex: 1; min-width: 0; }
+.ptsrow .sname .enote { display: block; font-size: 12.5px; color: var(--ink-3); }
+.ptsinp { width: 72px; height: 42px; text-align: center; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); color: var(--ink); font: inherit; font-size: 17px; font-weight: 600; }
+.ptsinp:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.ptsinp.bad { border-color: var(--neg); box-shadow: 0 0 0 3px var(--neg-soft); }
+.ptsg { width: 30px; text-align: center; font-size: 18px; font-weight: 800; }
+.dateinp.num { width: 70px; text-align: center; }
+.dateinp.wide { width: 170px; }
+.kp { min-width: 62px; text-align: right; font-size: 14px; color: var(--ink-3); }

@@ -8,7 +8,7 @@ const PUBLIC_KEY = {
   x: 'kHkzCWyGjuxGxGf_3AMH2F_MKEWEjH1hfCnBf7K1Imo',
   y: 'Fv556fMFzralLJTUqYxNxI68b9Fd4ctkLzgn07BzKj0'
 };
-const APP_VERSION = '5.2';
+const APP_VERSION = '5.3';
 
 const TYPES = {
   ma: { label: 'Mitarbeit', long: 'Mitarbeit', icon: 'spark', vals: [['+', '+', 'g'], ['~', '~', 'm'], ['-', '−', 'b']] },
@@ -463,6 +463,7 @@ function render() {
   else if (view === 'einstellungen') { key = 'set'; html = viewSettings(); }
   else if (view === 'hilfe') { key = 'help'; html = viewHelp(); }
   else if (view === 'stundenplan') { key = 'plan'; html = viewPlan(); }
+  else if (view === 'sa' && getClass(a)) { const t = b && getTest(getClass(a), b); key = 'sa' + a + (t ? t.id : ''); html = t ? viewTest(getClass(a), t) : viewTests(getClass(a)); }
   else {
     if (location.hash && location.hash !== '#/') history.replaceState(null, '', '#/');
     key = 'home'; html = viewHome();
@@ -587,7 +588,7 @@ function viewEntry(c) {
       : kind === 'text' ? `<p class="fine">Notiz eintippen, mit „Weiter“ zur nächsten Person.</p>`
       : kind === 'vh' ? `<p class="fine">Nur bei schlechtem Verhalten: „Vermerk“ antippen und kurz notieren, was vorgefallen ist. Zählt nicht zur Note.</p>` : '';
   const rows = [...c.students].sort(byName).map(s => rowHTML(c, s)).join('');
-  const rnd = kind === 'note' ? `<button class="link small rnd" data-a="randomPick">${ICON.spark} Wer kommt dran?</button>` : '';
+  const rnd = kind === 'note' ? `<button class="link small rnd" data-a="randomPick">${ICON.spark} Wer kommt dran?</button>${testCats(c).includes(type) ? `<button class="link small" data-a="goTests">${ICON.doc} Schularbeit mit Punkten</button>` : ''}` : '';
   const tools = rnd ? (bulk.startsWith('<div class="bulk">') ? bulk.replace('<div class="bulk">', `<div class="bulk two">${rnd}`) : `<div class="bulk two">${rnd}</div>` + bulk) : bulk;
   const di = dayInfo(c.id, ui.date);
   const topic = `<input class="field topic" data-ch="setDay" data-f="thema" value="${esc(di.thema || '')}" placeholder="Thema der Stunde …" aria-label="Thema der Stunde" autocomplete="off" autocapitalize="sentences" enterkeyhint="done">`;
@@ -1339,6 +1340,108 @@ function trendCard(c, sid) {
 }
 
 /* ---------- Einstellungen ---------- */
+/* ---------- Schularbeiten und Tests mit Punkten ---------- */
+// Eine Arbeit je Klasse: c.tests = [{ id, d, title, cat, max, key: [% für 1,2,3,4], w, pts: {sid: Punkte}, late: {sid: Datum} }]
+// Die Noten landen als normale Einträge (id „sa-…“) in der gewählten Kategorie – alle Auswertungen und Exporte sehen sie.
+const testsOf = c => (c.tests || (c.tests = []));
+const getTest = (c, id) => testsOf(c).find(t => t.id === id);
+// Noten-Kategorien, in die eine Punkte-Arbeit passt (Skala 1–5 oder Prozent)
+const testCats = c => visKeys(c).filter(k => kindOf(c, k) === 'note' && ['grade', 'pct'].includes(scaleOf(c, k)));
+const testKey = (c, t) => t.key || [...(scaleOf(c, t.cat) === 'pct' ? pctLimits(c, t.cat) : PCT_DEFAULT)];
+const testPct = (t, p) => p == null || !(t.max > 0) ? null : p / t.max * 100;
+function testGrade(c, t, p) {
+  const pc = testPct(t, p); if (pc == null) return null;
+  const K = testKey(c, t);
+  for (let i = 0; i < 4; i++) if (pc + 1e-9 >= K[i]) return i + 1;
+  return 5;
+}
+// Mindestpunkte je Note (auf halbe Punkte aufgerundet)
+const keyPoints = (c, t) => testKey(c, t).map(k => Math.ceil(k * t.max / 100 * 2) / 2);
+const fmtPts = p => String(p).replace('.', ',');
+function syncTest(c, t) {
+  const pre = 'sa-' + t.id + '-';
+  data.entries = data.entries.filter(e => !String(e.id).startsWith(pre));
+  if (!testCats(c).includes(t.cat)) return;
+  for (const s of c.students) {
+    const p = (t.pts || {})[s.id]; if (p == null) continue;
+    const g = testGrade(c, t, p), pc = testPct(t, p); if (g == null) continue;
+    const e = { id: pre + s.id, c: c.id, s: s.id, d: (t.late || {})[s.id] || t.d, t: t.cat,
+      v: scaleOf(c, t.cat) === 'pct' ? '%' + Math.round(pc * 10) / 10 : String(g),
+      n: `${t.title}: ${fmtPts(p)}/${fmtPts(t.max)} P.` };
+    if (t.w > 1) e.w = t.w;
+    data.entries.push(e);
+  }
+}
+function testStats(c, t) {
+  const dist = [0, 0, 0, 0, 0]; let sum = 0, n = 0;
+  for (const s of c.students) { const g = testGrade(c, t, (t.pts || {})[s.id]); if (g) { dist[g - 1]++; sum += g; n++; } }
+  return { dist, n, avg: n ? sum / n : null, missing: c.students.filter(s => (t.pts || {})[s.id] == null) };
+}
+function spiegelHTML(c, t) {
+  const st = testStats(c, t), mx = Math.max(1, ...st.dist);
+  return `<div class="spiegel">${st.dist.map((n, i) => `<div class="sp"><div class="spbar"><i class="g${i + 1} h${Math.round(n / mx * 10) * 10}"></i></div><b>${n}</b><span>${['Sehr gut', 'Gut', 'Befr.', 'Genügend', 'Nicht gen.'][i]}</span></div>`).join('')}</div>
+    <div class="spsum"><span>Ø <b>${st.avg == null ? '–' : fmtNum(st.avg)}</b></span><span>${st.n} von ${c.students.length} geschrieben</span>${st.dist[4] ? `<span class="b-t">${st.dist[4]}× Nicht genügend</span>` : ''}</div>
+    ${st.missing.length && st.n ? `<p class="fine">Noch ohne Punkte: ${st.missing.map(s => esc(s.name)).join(', ')}</p>` : ''}`;
+}
+function viewTests(c) {
+  setHeader({ title: 'Schularbeiten', back: '#/k/' + c.id, backLabel: c.name });
+  const ts = [...testsOf(c)].sort((a, b) => b.d.localeCompare(a.d));
+  return `<div class="hero"><div class="eyebrow">${esc(c.name)}</div><h1>Schularbeiten & Tests</h1><div class="sub">Punkte eintragen – die Note rechnet die App mit deinem Notenschlüssel aus.</div></div>
+    ${ts.length ? `<div class="card">${ts.map(t => { const st = testStats(c, t); return `<a class="lrow" href="#/sa/${c.id}/${t.id}"><span class="licon">${ICON.doc}</span>
+      <span class="grow">${esc(t.title)}<span class="lsub">${esc(fmtDay(t.d))} · ${esc(typeOf(c, t.cat).label)} · ${st.n}/${c.students.length} · Ø ${st.avg == null ? '–' : fmtNum(st.avg)}</span></span>${ICON.chev}</a>`; }).join('')}</div>`
+      : '<div class="card empty"><h2>Noch keine Arbeit</h2><p>Lege eine Schularbeit oder einen Test an und trag die Punkte ein.</p></div>'}
+    <button class="btn primary block mt" data-a="testNew">${ICON.plus} Neue Schularbeit / Test</button>`;
+}
+function viewTest(c, t) {
+  setHeader({ title: t.title, back: '#/sa/' + c.id, backLabel: 'Schularbeiten', act: { icon: 'more', a: 'testMenu', label: 'Menü' } });
+  const K = testKey(c, t), KP = keyPoints(c, t), cats = testCats(c);
+  const rows = [...c.students].sort(byName).map(s => {
+    const p = (t.pts || {})[s.id], g = testGrade(c, t, p), abs = isAbsentOn(c, s.id, t.d), late = (t.late || {})[s.id];
+    return `<div class="srow ptsrow" data-name="${esc(s.name.toLowerCase())}"><div class="sname">${esc(s.name)}${fromTag(s)}
+        ${late ? `<span class="enote">nachgeschrieben ${esc(fmtDay(late))}</span>` : abs && p == null ? '<span class="enote">war abwesend – nachschreiben</span>' : ''}</div>
+      <input class="ptsinp" type="text" inputmode="decimal" enterkeyhint="next" data-s="${s.id}" value="${p == null ? '' : fmtPts(p)}" placeholder="–" aria-label="Punkte für ${esc(s.name)}">
+      <span class="ptsg ${g ? gradeCls(g) : ''}" data-g="${s.id}">${g || ''}</span></div>`;
+  }).join('');
+  return `<div class="hero"><div class="eyebrow">${esc(c.name)}</div><h1>${esc(t.title)}</h1></div>
+    <div class="card">
+      <label class="lrow static"><span class="grow">Bezeichnung</span><input class="dateinp wide" data-ch="testSet" data-f="title" value="${esc(t.title)}" autocomplete="off"></label>
+      <label class="lrow static"><span class="grow">Datum</span><input class="dateinp" type="date" data-ch="testSet" data-f="d" value="${t.d}"></label>
+      <label class="lrow static"><span class="grow">Höchstpunkte</span><input class="dateinp num" inputmode="decimal" data-ch="testSet" data-f="max" value="${fmtPts(t.max)}"></label>
+      <div class="lrow static"><span class="grow">Zählt als</span><select class="dateinp" data-ch="testSet" data-f="cat">${cats.map(k => `<option value="${k}"${k === t.cat ? ' selected' : ''}>${esc(typeOf(c, k).label)}</option>`).join('')}</select></div>
+      <div class="lrow static"><span class="grow">Gewicht</span><div class="mini-seg compact">${[1, 2, 3].map(w => `<button class="${(t.w || 1) === w ? 'on' : ''}" data-a="testW" data-v="${w}" aria-pressed="${(t.w || 1) === w}">×${w}</button>`).join('')}</div></div>
+    </div>
+    <div class="section">Notenschlüssel · ab … Prozent</div>
+    <div class="card">${['Sehr gut', 'Gut', 'Befriedigend', 'Genügend'].map((l, i) => `<div class="lrow static"><span class="grow nowrap">${i + 1} · ${l}</span>
+      <input class="dateinp num" inputmode="decimal" data-ch="testKey" data-i="${i}" value="${fmtPts(K[i])}" aria-label="${l} ab Prozent"><span class="muted">%</span><span class="kp">${fmtPts(KP[i])} P.</span></div>`).join('')}
+      <div class="lrow static"><span class="grow">5 · Nicht genügend</span><span class="kp">unter ${fmtPts(KP[3])} P.</span></div></div>
+    <div class="section">Notenspiegel</div>
+    <div class="card pad" id="spiegel">${spiegelHTML(c, t)}</div>
+    <div class="section">Punkte</div>
+    <p class="fine">Punkte eintippen (halbe Punkte mit Komma), mit „Weiter“ zum nächsten Kind. Leer lassen = nicht geschrieben.</p>
+    <div class="card">${rows}</div>`;
+}
+let testSaveTimer = 0;
+document.addEventListener('input', e => {
+  const inp = e.target; if (!inp.classList || !inp.classList.contains('ptsinp')) return;
+  const c = currentClass(), t = c && getTest(c, location.hash.split('/')[3]); if (!t) return;
+  const raw = inp.value.trim().replace(',', '.'), p = raw === '' ? null : Number(raw), sid = inp.dataset.s;
+  const bad = raw !== '' && (isNaN(p) || p < 0 || p > t.max);
+  inp.classList.toggle('bad', bad); if (bad) return;
+  t.pts = t.pts || {};
+  if (p == null) { delete t.pts[sid]; if (t.late) delete t.late[sid]; }
+  else { t.pts[sid] = p; if (isAbsentOn(c, sid, t.d) && today() > t.d && !(t.late || {})[sid]) (t.late = t.late || {})[sid] = today(); }
+  syncTest(c, t);
+  const g = testGrade(c, t, p), b = document.querySelector(`[data-g="${sid}"]`);
+  if (b) { b.textContent = g || ''; b.className = 'ptsg ' + (g ? gradeCls(g) : ''); }
+  const sp = $('#spiegel'); if (sp) sp.innerHTML = spiegelHTML(c, t);
+  clearTimeout(testSaveTimer); testSaveTimer = setTimeout(save, 400);
+});
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Enter' || !e.target.classList || !e.target.classList.contains('ptsinp')) return;
+  e.preventDefault(); const all = [...document.querySelectorAll('.ptsinp')], i = all.indexOf(e.target);
+  if (all[i + 1]) all[i + 1].focus(); else e.target.blur();
+});
+
 /* ---------- Stundenplan ---------- */
 // Übliche Stundenzeiten als Vorschlag – jede Schule stellt ihre eigenen ein.
 const BELLS = [['07:55', '08:45'], ['08:50', '09:40'], ['09:55', '10:45'], ['10:50', '11:40'], ['11:45', '12:35'], ['12:40', '13:30'], ['13:35', '14:25'], ['14:25', '15:15'], ['15:15', '16:05'], ['16:05', '16:55']];
@@ -1436,6 +1539,7 @@ const HELP = [
   ['Noten', [
     ['Wie entsteht die Gesamtnote?', 'Jede Kategorie wird für sich gemittelt und dann nach deiner <b>Gewichtung</b> zusammengerechnet (Klasse → <b>••• → „Bewertung & Gewichtung“</b>). Kategorien mit 0 % zählen nicht. Bei Mitarbeit gilt + = 1, ~ = 3, − = 5.'],
     ['Was bedeutet „2–3“ beim Notenvorschlag?', 'Der Schnitt liegt genau zwischen zwei Noten (z. B. 2,5). Dann entscheidest du – die App schlägt bewusst nichts vor.'],
+    ['Wie trage ich eine Schularbeit mit Punkten ein?', 'Klasse → Kategorie <b>Schriftlich</b> → <b>„Schularbeit mit Punkten“</b> (oder <b>••• → „Schularbeiten & Tests“</b>) → <b>„Neue Schularbeit / Test“</b> → Höchstpunkte eingeben. Dann je Kind die Punkte eintippen – die Note rechnet die App mit dem <b>Notenschlüssel</b> aus (änderbar), der <b>Notenspiegel</b> entsteht automatisch. Die Noten zählen ganz normal zur Gesamtnote.'],
     ['Kann ich in Prozent oder mit eigener Skala bewerten?', 'Ja, je Kategorie unter <b>„Bewertung & Gewichtung“</b>: 1–5, + ~ −, <b>Prozent</b> mit eigenen Notengrenzen oder eine <b>eigene Skala</b>.'],
     ['Was zeigen „1. Sem.“, „2. Sem.“ und „Jahr“?', 'Den Zeitraum für Noten, Übersicht und Exporte. Wann das 2. Semester beginnt, stellst du unter <b>Zahnrad → Schuljahr</b> ein.'],
     ['Was bedeutet das rote „!“?', 'Die Gesamtnote liegt <b>über 4</b>. Bei der Schülerin bzw. dem Schüler kannst du dann eine <b>Frühwarnung</b> als PDF erstellen.']]],
@@ -1466,7 +1570,7 @@ const HELP_KW = {
   '„P“': 'passiv keine leistung', 'nicht benoten': 'abwesend krank fehlt', 'anderen Tag': 'nachtragen datum gestern vergangen',
   'schneller': 'alle suche suchen', 'Sitzplan': 'plätze sitzordnung', 'Stundenplan': 'stunden zeiten uhrzeit automatisch öffnen aktuelle klasse doppelstunde', 'Wer kommt dran': 'zufall zufällig prüfen wiederholung',
   'notiere ich': 'eltern sprechtag gespräch notiz', 'Gesamtnote?': 'durchschnitt schnitt gewichtung prozent rechnen',
-  'Notenvorschlag': 'zeugnis knapp', 'eigener Skala': 'punkte notengrenzen skala', 'Sem.': 'semester halbjahr', 'rote': 'gefährdet frühwarnung nicht genügend',
+  'Notenvorschlag': 'zeugnis knapp', 'Schularbeit mit Punkten': 'test punkte notenschlüssel notenspiegel prüfung', 'eigener Skala': 'punkte notengrenzen skala', 'Sem.': 'semester halbjahr', 'rote': 'gefährdet frühwarnung nicht genügend',
   'PDF für ein Elterngespräch': 'drucken sprechtag', 'Notenkonferenz': 'konferenz zeugnis excel', 'Datei am iPhone': 'dateien icloud speichern teilen',
   'gespeichert?': 'cloud server datenschutz', 'sichere ich': 'backup export', 'neues Gerät': 'handy handywechsel tablet ipad übertragen umzug backup',
   'PIN vergessen': 'code gesperrt sperre', 'Sicherungspasswort vergessen': 'backup passwort', 'Safari': 'cache verlauf speicher löschen',
@@ -1692,6 +1796,7 @@ function applyYearChange(plan) {
   data.entries = data.entries.filter(e => !gone.has(e.c) && e.d >= a);
   data.days = days().filter(x => !gone.has(x.c) && x.d >= a);
   data.plan = [];  // neues Schuljahr – neuer Stundenplan
+  data.classes.forEach(c => { if (c.tests) c.tests = c.tests.filter(t => t.d >= a); });
   data.prefs = Object.assign({}, data.prefs, { yearDone: yearLabel() }); delete data.prefs.yearSnooze;
 }
 
@@ -2482,7 +2587,7 @@ function addNames(c, names) {
 }
 
 /* ---------- Aktionen ---------- */
-const currentClass = () => { const [v, a] = location.hash.replace(/^#\/?/, '').split('/'); return (v === 'k' || v === 's' || v === 'b' || v === 'kat') ? getClass(a) : null; };
+const currentClass = () => { const [v, a] = location.hash.replace(/^#\/?/, '').split('/'); return (v === 'k' || v === 's' || v === 'b' || v === 'kat' || v === 'sa') ? getClass(a) : null; };
 const currentStudentId = () => location.hash.replace(/^#\/?/, '').split('/')[2];
 const errMsg = e => e && e.message ? e.message : 'Datei konnte nicht gelesen werden';
 
@@ -2496,6 +2601,55 @@ const actions = {
   goSettings() { location.hash = '#/einstellungen'; },
   goHelp() { ui.helpBack = location.hash || '#/'; location.hash = '#/hilfe'; },
   goPlan() { ui.planBack = location.hash || '#/'; location.hash = '#/stundenplan'; },
+  goTests() { const c = currentClass(); if (c) location.hash = '#/sa/' + c.id; },
+  async testNew() {
+    const c = currentClass(); if (!c) return;
+    const cats = testCats(c); if (!cats.length) return toast('Keine Noten-Kategorie mit Skala 1–5 oder Prozent');
+    const n = testsOf(c).length + 1;
+    const r = await modal({ title: 'Neue Schularbeit / Test', text: c.name, ok: 'Anlegen',
+      body: `<input name="t" value="${n}. Schularbeit" placeholder="Bezeichnung" autocomplete="off"><input name="m" inputmode="decimal" placeholder="Höchstpunkte, z. B. 48" autocomplete="off">`,
+      mount: d => setTimeout(() => d.querySelector('[name=m]').focus(), 120),
+      collect: d => ({ t: d.querySelector('[name=t]').value.trim(), m: Number(d.querySelector('[name=m]').value.trim().replace(',', '.')) }) });
+    if (!r) return;
+    if (!(r.m > 0)) return toast('Bitte die Höchstpunkte angeben');
+    const t = { id: uid(), d: ui.date || today(), title: r.t || `${n}. Schularbeit`, cat: cats.includes('sw') ? 'sw' : cats.includes(ui.type) ? ui.type : cats[0], max: r.m, pts: {} };
+    testsOf(c).push(t); await save(); location.hash = `#/sa/${c.id}/${t.id}`;
+  },
+  async testSet(inp) {
+    const c = currentClass(), t = c && getTest(c, location.hash.split('/')[3]); if (!t) return;
+    const f = inp.dataset.f, v = inp.value.trim();
+    if (f === 'title') { if (!v) return render(); t.title = v; }
+    if (f === 'd') { if (!/^\d{4}-\d\d-\d\d$/.test(v)) return render(); t.d = v; }
+    if (f === 'cat') t.cat = v;
+    if (f === 'max') {
+      const m = Number(v.replace(',', '.')), top = Math.max(0, ...Object.values(t.pts || {}));
+      if (!(m > 0)) return render();
+      if (m < top) { toast(`Schon ${fmtPts(top)} Punkte vergeben – Höchstpunkte müssen mindestens so hoch sein`); return render(); }
+      t.max = m;
+    }
+    syncTest(c, t); await save(); render();
+  },
+  async testKey(inp) {
+    const c = currentClass(), t = c && getTest(c, location.hash.split('/')[3]); if (!t) return;
+    const K = [...testKey(c, t)], i = Number(inp.dataset.i), v = Number(inp.value.trim().replace(',', '.'));
+    if (!(v > 0 && v <= 100) || (i > 0 && v >= K[i - 1]) || (i < 3 && v <= K[i + 1])) { toast('Die Grenzen müssen von 1 bis 4 kleiner werden'); return render(); }
+    K[i] = v; t.key = K; syncTest(c, t); await save(); render();
+  },
+  async testW(d) { const c = currentClass(), t = c && getTest(c, location.hash.split('/')[3]); if (!t) return; t.w = Number(d.v); if (t.w === 1) delete t.w; syncTest(c, t); await save(); render(); },
+  async testMenu() {
+    const c = currentClass(), t = c && getTest(c, location.hash.split('/')[3]); if (!t) return;
+    const k = await modal({ title: t.title, options: [['copy', 'Notenspiegel kopieren'], ['del', 'Arbeit löschen', true]], cancel: 'Schließen' });
+    if (k === 'copy') {
+      const st = testStats(c, t);
+      const txt = `${c.name} · ${t.title} (${fmtDay(t.d)})\n` + st.dist.map((n, i) => `${i + 1}: ${n}`).join('   ') + `\nØ ${st.avg == null ? '–' : fmtNum(st.avg)} · ${st.n} von ${c.students.length} geschrieben · Höchstpunkte ${fmtPts(t.max)}`;
+      try { await navigator.clipboard.writeText(txt); toast('Notenspiegel kopiert'); } catch { modal({ title: 'Notenspiegel', textarea: true, value: txt, ok: 'Fertig' }); }
+    }
+    if (k === 'del') {
+      if (!await modal({ title: 'Arbeit löschen?', text: `„${t.title}“ und die daraus entstandenen Noten werden gelöscht.`, ok: 'Löschen', danger: true })) return;
+      c.tests = testsOf(c).filter(x => x !== t); t.pts = {}; syncTest(c, t);
+      await save(); location.hash = '#/sa/' + c.id; toast('Arbeit gelöscht');
+    }
+  },
   openLesson(d) { ui.tab = 'e'; ui.date = today(); saveUi(); location.hash = '#/k/' + d.c; },
   async planCell(d) {
     const wd = Number(d.wd), h = Number(d.h), cur = planAt(wd, h);
@@ -2709,11 +2863,12 @@ const actions = {
     const c = currentClass(); if (!c) return;
     const k = await modal({
       title: c.name, options: [
-        ['cfg', 'Bewertung & Gewichtung'], ['stud', 'Schüler:innen hinzufügen'],
+        ['cfg', 'Bewertung & Gewichtung'], ...(testCats(c).length ? [['sa', 'Schularbeiten & Tests (Punkte)']] : []), ['stud', 'Schüler:innen hinzufügen'],
         ['ren', 'Umbenennen'], ['hide', c.hidden ? 'Wieder einblenden' : 'Ausblenden'], ['del', 'Klasse löschen', true]
       ], cancel: 'Schließen'
     });
     if (k === 'cfg') location.hash = '#/b/' + c.id;
+    if (k === 'sa') location.hash = '#/sa/' + c.id;
     if (k === 'stud') {
       const o = await modal({ title: 'Schüler:innen hinzufügen', text: c.name, options: [['imp', 'Liste importieren (WebUntis, Excel, CSV)'], ['add', 'Namen eintippen'], ...(data.classes.length > 1 ? [['mix', 'Aus anderen Klassen übernehmen']] : [])] });
       if (o === 'imp') actions.importStudents();
