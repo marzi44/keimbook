@@ -8,7 +8,7 @@ const PUBLIC_KEY = {
   x: 'kHkzCWyGjuxGxGf_3AMH2F_MKEWEjH1hfCnBf7K1Imo',
   y: 'Fv556fMFzralLJTUqYxNxI68b9Fd4ctkLzgn07BzKj0'
 };
-const APP_VERSION = '5.4';
+const APP_VERSION = '5.5';
 
 const TYPES = {
   ma: { label: 'Mitarbeit', long: 'Mitarbeit', icon: 'spark', vals: [['+', '+', 'g'], ['~', '~', 'm'], ['-', '−', 'b']] },
@@ -265,6 +265,7 @@ async function tryUnlock(pin) {
   data = d && d.enc ? JSON.parse(TD.decode(await Crypt.open(key, d))) : (d && Array.isArray(d.classes) ? d : { classes: [], entries: [] });
   dek = key; locked = false;
   if (migrate(data)) await save();
+  resetTrack();
   return true;
 }
 async function removePin() {
@@ -275,7 +276,7 @@ async function removePin() {
 }
 function lockNow() {
   if (!lockCfg || locked) return;
-  locked = true; dek = null; data = { classes: [], entries: [] };
+  locked = true; dek = null; data = { classes: [], entries: [] }; trk = null;
   const d = $('#dlg'); if (d.open) d.close();
   render();
 }
@@ -339,8 +340,103 @@ ui.date = today(); // beim Start immer heute
 if (!ui.type) ui.type = 'ma';
 if (!ui.filter) ui.filter = 'all';
 
+/* ---------- Änderungen mitschreiben (für den Abgleich zweier Geräte) ----------
+   Beim Speichern vergleicht die App mit dem letzten Stand: Geänderte Objekte bekommen einen Zeitstempel „u“,
+   Gelöschtes landet als „Grabstein“ in data.del – so weiß das andere Gerät, was neuer ist und was weg soll. */
+let trk = null;
+const hx = (o, skip) => JSON.stringify(o, (k, v) => k === 'u' || (skip && skip.includes(k)) ? undefined : v);
+function snapOf(d) {
+  const m = { e: new Map(), c: new Map(), s: new Map(), t: new Map(), x: new Map(), d: new Map(), plan: hx(d.plan || []), prefs: hx(d.prefs || {}) };
+  (d.entries || []).forEach(e => m.e.set(e.id, [hx(e), e]));
+  (d.classes || []).forEach(c => {
+    m.c.set(c.id, [hx(c, ['students', 'tests']), c]);
+    c.students.forEach(s => { m.s.set(c.id + ':' + s.id, [hx(s, ['talks']), s]); (s.talks || []).forEach(t => m.t.set(t.id, [hx(t), t])); });
+    (c.tests || []).forEach(t => m.x.set(t.id, [hx(t), t]));
+  });
+  (d.days || []).forEach(x => m.d.set(x.c + '|' + x.d, [hx(x), x]));
+  return m;
+}
+const resetTrack = () => { trk = snapOf(data); };
+function track(now = Date.now()) {
+  const cur = snapOf(data);
+  if (!trk) { trk = cur; return; }
+  const del = data.del || (data.del = {});
+  for (const kind of ['e', 'c', 's', 't', 'x', 'd']) {
+    const before = trk[kind];
+    for (const [k, [h, o]] of cur[kind]) { const b = before.get(k); if (!b || b[0] !== h) o.u = now; delete del[kind + ':' + k]; }
+    for (const k of before.keys()) if (!cur[kind].has(k)) del[kind + ':' + k] = now;
+  }
+  if (cur.plan !== trk.plan) data.planU = now;
+  if (cur.prefs !== trk.prefs) data.prefsU = now;
+  const old = now - 400 * 864e5; for (const k in del) if (del[k] < old) delete del[k];
+  if (!Object.keys(del).length) delete data.del;
+  trk = cur;
+}
+/* Zwei Datenstände zusammenführen: je Objekt gewinnt die neuere Fassung, Grabsteine löschen ältere Fassungen. */
+function mergeData(inc) {
+  const del = Object.assign({}, data.del), idel = inc.del || {}, st = { neu: 0, geaendert: 0, geloescht: 0 };
+  const dead = (key, u, tomb) => tomb[key] != null && tomb[key] >= (u || 0);
+  function list(kind, loc, other, keyOf, both) {
+    const om = new Map((other || []).map(o => [keyOf(o), o])), lk = new Set(), out = [];
+    for (const o of loc || []) {
+      const k = keyOf(o); lk.add(k);
+      if (om.has(k)) {
+        const i = om.get(k);
+        if (both) out.push(both(o, i));
+        else if ((i.u || 0) > (o.u || 0)) { if (hx(i) !== hx(o)) st.geaendert++; out.push(i); }
+        else out.push(o);
+      } else if (dead(kind + ':' + k, o.u, idel)) st.geloescht++;
+      else out.push(o);
+    }
+    for (const [k, i] of om) if (!lk.has(k) && !dead(kind + ':' + k, i.u, del)) { out.push(i); st.neu++; }
+    return out;
+  }
+  data.entries = list('e', data.entries, inc.entries, e => e.id);
+  data.classes = list('c', data.classes, inc.classes, c => c.id, (a, b) => {
+    const newer = (b.u || 0) > (a.u || 0);
+    if (newer && hx(a, ['students', 'tests']) !== hx(b, ['students', 'tests'])) st.geaendert++;
+    const r = Object.assign({}, newer ? b : a);
+    r.students = list('s', a.students, b.students, s => a.id + ':' + s.id, (x, y) => {
+      const nw = (y.u || 0) > (x.u || 0);
+      if (nw && hx(x, ['talks']) !== hx(y, ['talks'])) st.geaendert++;
+      const s = Object.assign({}, nw ? y : x), t = list('t', x.talks, y.talks, t => t.id);
+      if (t.length) s.talks = t; else delete s.talks;
+      return s;
+    });
+    const tests = list('x', a.tests, b.tests, t => t.id);
+    if (tests.length) r.tests = tests; else delete r.tests;
+    return r;
+  });
+  const dd = list('d', data.days, inc.days, x => x.c + '|' + x.d);
+  if (dd.length) data.days = dd; else delete data.days;
+  if ((inc.planU || 0) > (data.planU || 0)) { data.plan = inc.plan; data.planU = inc.planU; }
+  if ((inc.prefsU || 0) > (data.prefsU || 0)) { data.prefs = inc.prefs; data.prefsU = inc.prefsU; }
+  for (const k in idel) if (!(del[k] >= idel[k])) del[k] = idel[k];
+  if (Object.keys(del).length) data.del = del; else delete data.del;
+  migrate(data);
+  return st;
+}
+// Sicherungs- bzw. Abgleich-Datei öffnen (fragt nach dem Sicherungspasswort)
+async function readBackupFile(f, title = 'Sicherung öffnen') {
+  let j;
+  try { j = JSON.parse(await readText(f)); if (!j || j.app !== 'klassenbuch') throw 0; } catch { toast('Das ist keine gültige KeimBook-Datei'); return null; }
+  let inc = j.data;
+  if (j.enc) {
+    const pw = await secretSheet({ title, text: 'Diese Datei ist verschlüsselt. Gib das Sicherungspasswort des Geräts ein, auf dem sie erstellt wurde.', ok: 'Öffnen' });
+    if (!pw) return null;
+    try {
+      const key = await crypto.subtle.importKey('raw', await Crypt.rawKey(pw, fromB64(j.enc.salt), j.enc.iter), 'AES-GCM', false, ['decrypt']);
+      inc = JSON.parse(TD.decode(await Crypt.open(key, { iv: fromB64(j.enc.iv), ct: fromB64(j.enc.ct) })));
+    } catch { toast('Falsches Passwort'); return null; }
+  }
+  if (!inc || !Array.isArray(inc.classes) || !Array.isArray(inc.entries)) { toast('Das ist keine gültige KeimBook-Datei'); return null; }
+  return { inc, when: j.exportiert || '', sync: !!j.abgleich };
+}
+const mergeText = st => st.neu + st.geaendert + st.geloescht ? `${st.neu} neu, ${st.geaendert} geändert, ${st.geloescht} entfernt` : 'Beide Stände waren schon gleich';
+
 async function save() {
   if (locked) return; // gesperrt: nichts überschreiben
+  track();
   try { await DB.set('data', dek ? { enc: 1, ...(await Crypt.seal(dek, TE.encode(JSON.stringify(data)))) } : data); }
   catch (e) { toast('Speichern fehlgeschlagen: ' + e.message); }
 }
@@ -1616,6 +1712,7 @@ const HELP = [
     ['Wie nehme ich meine Daten auf ein neues Gerät mit?', 'Am alten Gerät eine Sicherung exportieren (z. B. in iCloud Drive). Am neuen Gerät KeimBook installieren und freischalten → <b>Zahnrad → „Sicherung importieren“</b> → Sicherungspasswort → <b>„Alles ersetzen“</b>.'],
     ['Ich habe meinen PIN vergessen.', 'Ohne PIN lassen sich die Daten nicht öffnen – das ist der Schutz. Über <b>„PIN vergessen?“</b> wird alles gelöscht; danach importierst du deine letzte Sicherung.'],
     ['Ich habe mein Sicherungspasswort vergessen.', 'Ältere Sicherungen lassen sich dann nicht mehr öffnen. Deine Daten in der App sind nicht betroffen: Lege unter Zahnrad <b>„Passwort ändern“</b> ein neues fest und exportiere sofort eine neue Sicherung.'],
+    ['Kann ich KeimBook auf Handy und iPad gleichzeitig nutzen?', 'Ja. Zum Abgleichen: Zahnrad → <b>„Mit anderem Gerät abgleichen“</b> → am ersten Gerät <b>„Abgleich-Datei erstellen“</b>, die Datei per AirDrop, iCloud Drive oder Mail ans andere Gerät schicken und dort <b>„Abgleich-Datei einlesen“</b>. Danach bietet die App an, eine Antwort-Datei zurückzuschicken – dann sind beide gleich. Neuere Einträge gewinnen, Gelöschtes wird auf beiden Geräten gelöscht. Am einfachsten mit demselben Sicherungspasswort auf beiden Geräten.'],
     ['Darf ich Safari-Verlauf und Websitedaten löschen?', 'Vorsicht: Das Löschen von Websitedaten (oder das Entfernen der App) kann auch die Daten von KeimBook löschen. Mach vorher immer eine Sicherung.']]],
   ['Schuljahr und Löschfristen', [
     ['Wie starte ich ins neue Schuljahr?', 'Ab 1. September erscheint auf der Startseite <b>„Neues Schuljahr“</b> (auch unter Zahnrad → „Altes Schuljahr abschließen“). Archiv sichern, Klassen übernehmen (3B → 4B), alte Einträge löschen.'],
@@ -1636,7 +1733,7 @@ const HELP_KW = {
   'Notenvorschlag': 'knapp vorschlag', 'Zeugnisnote fest': 'zeugnis schulnachricht jahreszeugnis konferenz semesternote', 'Schularbeit mit Punkten': 'test punkte notenschlüssel notenspiegel prüfung', 'eigener Skala': 'punkte notengrenzen skala', 'Sem.': 'semester halbjahr', 'rote': 'gefährdet frühwarnung nicht genügend',
   'PDF für ein Elterngespräch': 'drucken sprechtag', 'Notenkonferenz': 'konferenz zeugnis excel', 'Datei am iPhone': 'dateien icloud speichern teilen',
   'gespeichert?': 'cloud server datenschutz', 'sichere ich': 'backup export', 'neues Gerät': 'handy handywechsel tablet ipad übertragen umzug backup',
-  'PIN vergessen': 'code gesperrt sperre', 'Sicherungspasswort vergessen': 'backup passwort', 'Safari': 'cache verlauf speicher löschen',
+  'PIN vergessen': 'code gesperrt sperre', 'Handy und iPad': 'abgleich synchronisieren sync zwei geräte tablet airdrop', 'Sicherungspasswort vergessen': 'backup passwort', 'Safari': 'cache verlauf speicher löschen',
   'neue Schuljahr': 'september jahreswechsel aufsteigen archiv', 'Aufbewahrungsfrist': 'löschfrist löschen dsgvo archiv',
   'alte Version': 'update aktualisieren neu', 'Lizenz': 'code freischalten abgelaufen', 'weiteren Fragen': 'support kontakt handbuch'
 };
@@ -1681,6 +1778,7 @@ function viewSettings() {
     <div class="card">
       <button class="lrow" data-a="exportBackup"><span class="licon">${ICON.download}</span><span class="grow">Sicherung exportieren</span>${ICON.chev}</button>
       <button class="lrow" data-a="importBackup"><span class="licon">${ICON.upload}</span><span class="grow">Sicherung importieren</span>${ICON.chev}</button>
+      <button class="lrow" data-a="syncMenu"><span class="licon">${ICON.merge}</span><span class="grow">Mit anderem Gerät abgleichen</span>${ICON.chev}</button>
     </div>
     <p class="fine">Letzte Sicherung: <b>${esc(backupWhen())}</b> · Erinnerung zweimal pro Woche<br>Sicherungen sind mit deinem Sicherungspasswort verschlüsselt.${hasBkPw ? ' <button class="link inl" data-a="backupPw">Passwort ändern</button>' : ''}</p>
 
@@ -1720,7 +1818,7 @@ function viewSettings() {
 }
 
 // Verschlüsselte Sicherung aller Daten in eine Datei. true = gespeichert bzw. geteilt.
-async function writeBackup(name) {
+async function writeBackup(name, extra = {}) {
   let k = await loadBackupKey();
   if (!k) {
     const pw = await secretSheet({ title: 'Sicherungspasswort festlegen', text: 'Sicherungen werden verschlüsselt. Mit diesem Passwort öffnest du sie später wieder – z. B. auf einem neuen Handy. Bitte gut merken oder notieren.', twice: true, ok: 'Festlegen und sichern' });
@@ -1729,7 +1827,7 @@ async function writeBackup(name) {
   }
   const key = await crypto.subtle.importKey('raw', k.raw, 'AES-GCM', false, ['encrypt']);
   const box = await Crypt.seal(key, TE.encode(JSON.stringify(data)));
-  const out = { app: 'klassenbuch', format: 2, exportiert: new Date().toISOString(),
+  const out = { app: 'klassenbuch', format: 2, exportiert: new Date().toISOString(), ...extra,
     enc: { alg: 'AES-256-GCM', kdf: 'PBKDF2-SHA-256', iter: k.iter, salt: toB64(k.salt), iv: toB64(box.iv), ct: toB64(box.ct) } };
   if (!await saveFile(name, 'application/json', JSON.stringify(out))) return false;
   backup.last = Date.now(); backup.snooze = 0;
@@ -2892,7 +2990,7 @@ const actions = {
     if (!await modal({ title: 'PIN vergessen?', text: 'Ohne PIN lassen sich die verschlüsselten Daten nicht mehr öffnen – auch nicht von mir als Entwickler.\n\nDu kannst alles löschen, neu beginnen und danach deine letzte Sicherung importieren.', ok: 'Alles löschen und neu beginnen', danger: true })) return;
     if (!await modal({ title: 'Wirklich alles löschen?', text: 'Alle Klassen und Einträge auf diesem Gerät werden endgültig gelöscht.', ok: 'Endgültig löschen', danger: true })) return;
     await DB.del('data'); await DB.del('lock'); await DB.del('bkkey');
-    lockCfg = null; dek = null; locked = false; hasBkPw = false; data = { classes: [], entries: [] }; pinBuf = ''; lsSet('kb.pinTries', { n: 0, until: 0 });
+    lockCfg = null; dek = null; locked = false; hasBkPw = false; data = { classes: [], entries: [] }; trk = null; pinBuf = ''; lsSet('kb.pinTries', { n: 0, until: 0 });
     location.hash = '#/'; render(); toast('Gelöscht – importiere jetzt deine Sicherung');
   },
   async pinOn() {
@@ -3392,6 +3490,29 @@ const actions = {
     saveFile(`Einträge_${safeName(c.name)}_${periodFile()}.csv`, 'text/csv', toCSV(rows));
   },
   async exportBackup() { await writeBackup(`KeimBook-Sicherung_${today()}.json`); },
+  async syncMenu() {
+    const k = await modal({ title: 'Zwei Geräte abgleichen', text: 'Z. B. Handy und iPad – ohne Cloud. Ein Gerät erstellt eine verschlüsselte Abgleich-Datei, das andere liest sie ein. Neuere Einträge gewinnen, Gelöschtes wird auch am anderen Gerät gelöscht. Tipp: auf beiden Geräten dasselbe Sicherungspasswort verwenden.',
+      options: [['out', 'Abgleich-Datei erstellen (Schritt 1)'], ['in', 'Abgleich-Datei einlesen (Schritt 2)']], cancel: 'Schließen' });
+    if (k === 'out') return actions.syncOut();
+    if (k === 'in') return actions.syncIn();
+  },
+  async syncOut() {
+    if (await writeBackup(`KeimBook-Abgleich_${today()}_${hm(new Date()).replace(':', '')}.json`, { abgleich: true }))
+      modal({ title: 'Abgleich-Datei erstellt', text: 'Bring die Datei aufs andere Gerät (AirDrop, iCloud Drive, Mail an dich selbst …) und lies sie dort ein: Zahnrad → „Mit anderem Gerät abgleichen“ → „Abgleich-Datei einlesen“.', ok: 'Verstanden', cancel: 'Schließen' });
+  },
+  async syncIn() {
+    const f = await pickFile(); if (!f) return;
+    const rb = await readBackupFile(f, 'Abgleich-Datei öffnen'); if (!rb) return;
+    const when = rb.when ? new Date(rb.when) : null;
+    if (!await modal({ title: 'Jetzt abgleichen?', ok: 'Abgleichen',
+      text: `Datei${when ? ` vom ${when.toLocaleDateString('de-AT')}, ${hm(when)} Uhr` : ''}: ${plural(rb.inc.classes.length, 'Klasse', 'Klassen')}, ${plural(rb.inc.entries.length, 'Eintrag', 'Einträge')}. Neuere Fassungen gewinnen, auf dem anderen Gerät Gelöschtes wird hier auch gelöscht.` })) return;
+    const snap = JSON.stringify(data);
+    const st = mergeData(rb.inc); resetTrack();
+    await save(); location.hash = '#/'; render();
+    toast('Abgeglichen: ' + mergeText(st), { label: 'Rückgängig', fn: async () => { data = JSON.parse(snap); trk = null; await save(); render(); toast('Rückgängig gemacht'); } });
+    if (await modal({ title: 'Abgleich fertig', text: `${mergeText(st)}. Damit auch das andere Gerät auf dem neuesten Stand ist: Erstelle jetzt hier eine Abgleich-Datei und lies sie dort ein.`, ok: 'Abgleich-Datei erstellen', cancel: 'Später' }))
+      actions.syncOut();
+  },
   yearWizard() { return yearWizard(); },
   async setRetain(d) { data.prefs = Object.assign({}, data.prefs, { retain: Number(d.v) }); await save(); render(); },
   async archDone(d) {
@@ -3408,42 +3529,25 @@ const actions = {
     // Keine Sicherung, sondern z. B. eine Schülerliste? Dann als Liste importieren.
     const head = new Uint8Array(await f.slice(0, 4).arrayBuffer());
     if (head[0] !== 0x7B && !/\.json$/i.test(f.name)) return actions.importAny(f);
-    let inc, j;
-    try { j = JSON.parse(await readText(f)); if (!j || j.app !== 'klassenbuch') throw 0; } catch { return toast('Das ist keine gültige KeimBook-Sicherung'); }
-    if (j.enc) {
-      const pw = await secretSheet({ title: 'Sicherung öffnen', text: 'Diese Sicherung ist verschlüsselt. Gib das Sicherungspasswort ein.', ok: 'Öffnen' });
-      if (!pw) return;
-      try {
-        const key = await crypto.subtle.importKey('raw', await Crypt.rawKey(pw, fromB64(j.enc.salt), j.enc.iter), 'AES-GCM', false, ['decrypt']);
-        inc = JSON.parse(TD.decode(await Crypt.open(key, { iv: fromB64(j.enc.iv), ct: fromB64(j.enc.ct) })));
-      } catch { return toast('Falsches Passwort'); }
-    } else inc = j.data;
-    if (!inc || !Array.isArray(inc.classes) || !Array.isArray(inc.entries)) return toast('Das ist keine gültige KeimBook-Sicherung');
+    const rb = await readBackupFile(f); if (!rb) return;
+    const inc = rb.inc;
     const k = await modal({
       title: 'Sicherung importieren', text: `${plural(inc.classes.length, 'Klasse', 'Klassen')}, ${plural(inc.entries.length, 'Eintrag', 'Einträge')}`,
-      options: [['merge', 'Ergänzen (vorhandene Daten behalten)'], ['replace', 'Alles ersetzen', true]]
+      options: [['merge', 'Ergänzen / abgleichen (vorhandene Daten behalten)'], ['replace', 'Alles ersetzen', true]]
     });
     if (!k) return;
     if (k === 'replace') {
       if (data.classes.length && !await modal({ title: 'Alles ersetzen?', text: 'Alle aktuellen Daten auf diesem Gerät werden überschrieben.', ok: 'Ersetzen', danger: true })) return;
       data = { ...inc, classes: inc.classes, entries: inc.entries };
-      migrate(data);
-    } else {
-      const ids = new Set(data.entries.map(e => e.id));
-      for (const c of inc.classes) {
-        const ex = getClass(c.id);
-        if (!ex) data.classes.push(c);
-        else { const sids = new Set(ex.students.map(s => s.id)); c.students.forEach(s => { if (!sids.has(s.id)) ex.students.push(s); }); }
-      }
-      inc.entries.forEach(e => { if (!ids.has(e.id)) data.entries.push(e); });
-      (inc.days || []).forEach(x => { if (!days().some(y => y.c === x.c && y.d === x.d)) days().push(x); });
-      migrate(data);
+      migrate(data); trk = null;
+      await save(); location.hash = '#/'; render(); return toast('Sicherung importiert');
     }
-    await save(); location.hash = '#/'; render(); toast('Sicherung importiert');
+    const st = mergeData(inc); resetTrack();
+    await save(); location.hash = '#/'; render(); toast('Ergänzt: ' + mergeText(st));
   },
   async wipe() {
     if (!await modal({ title: 'Alle Daten löschen?', text: 'Alle Klassen, Schüler:innen und Einträge auf diesem Gerät werden gelöscht. Exportiere vorher eine Sicherung!', ok: 'Alles löschen', danger: true })) return;
-    data = { classes: [], entries: [] }; await save(); location.hash = '#/'; render(); toast('Alle Daten gelöscht');
+    data = { classes: [], entries: [] }; trk = null; await save(); location.hash = '#/'; render(); toast('Alle Daten gelöscht');
   }
 };
 
@@ -3475,6 +3579,7 @@ async function loadData() {
   const d = await DB.get('data');
   if (d && Array.isArray(d.classes)) data = d;
   if (migrate(data)) await save();
+  resetTrack();
 }
 
 async function start() {
