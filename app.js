@@ -8,7 +8,7 @@ const PUBLIC_KEY = {
   x: 'kHkzCWyGjuxGxGf_3AMH2F_MKEWEjH1hfCnBf7K1Imo',
   y: 'Fv556fMFzralLJTUqYxNxI68b9Fd4ctkLzgn07BzKj0'
 };
-const APP_VERSION = '4.8';
+const APP_VERSION = '4.9';
 
 const TYPES = {
   ma: { label: 'Mitarbeit', long: 'Mitarbeit', icon: 'spark', vals: [['+', '+', 'g'], ['~', '~', 'm'], ['-', '−', 'b']] },
@@ -463,7 +463,13 @@ function render() {
   });
   onScroll();
 }
-window.addEventListener('hashchange', () => { main.scrollTop = 0; $('#toast').classList.remove('show'); render(); });
+let lastClassHash = '';
+window.addEventListener('hashchange', () => {
+  main.scrollTop = 0; $('#toast').classList.remove('show');
+  const ch = (location.hash.match(/^#\/(?:k|s)\/([^/]+)/) || [])[1] || '';
+  if (ch !== lastClassHash) { ui.q = ''; lastClassHash = ch; }
+  render();
+});
 // Kein Zoomen per Zwei-Finger-Geste (iOS ignoriert user-scalable=no)
 ['gesturestart', 'gesturechange', 'gestureend'].forEach(t => document.addEventListener(t, e => e.preventDefault(), { passive: false }));
 
@@ -560,12 +566,23 @@ function viewEntry(c) {
   const kind = kindOf(c, type), t = typeOf(c, type);
   const bulk = type === 'hu' ? `<div class="bulk"><button class="link" data-a="bulkFill" data-v="y">Alle übrigen ✓</button></div>`
     : type === 'an' ? `<div class="bulk"><button class="link" data-a="bulkFill" data-v="AN">Alle übrigen anwesend</button></div>`
+    : scaleOf(c, type) === 'pm' ? `<div class="bulk"><button class="link" data-a="bulkFill" data-v="+">Alle übrigen +</button></div>`
+    : scaleOf(c, type) === 'own' ? (l => `<div class="bulk"><button class="link" data-a="bulkFill" data-v="o:${l.id}">Alle übrigen ${esc(l.l)}</button></div>`)(ownLevels(c, type)[0])
     : kind === 'num' ? `<p class="fine">${esc(t.label)}${t.unit ? ' in ' + esc(t.unit) : ''} · Wert eintippen, mit „Weiter“ zur nächsten Person. Leeres Feld löscht den Eintrag.</p>`
       : kind === 'text' ? `<p class="fine">Notiz eintippen, mit „Weiter“ zur nächsten Person.</p>`
       : kind === 'vh' ? `<p class="fine">Nur bei schlechtem Verhalten: „Vermerk“ antippen und kurz notieren, was vorgefallen ist. Zählt nicht zur Note.</p>` : '';
   const rows = [...c.students].sort(byName).map(s => rowHTML(c, s)).join('');
-  return datebar + `<div class="cats">${cats}</div>${bulk}<div class="card">${rows}</div>`;
+  return datebar + `<div class="cats">${cats}</div>${searchBox(c)}${bulk}<div class="card">${rows}</div>`;
 }
+
+// Namenssuche: blendet Zeilen aus, ohne neu zu zeichnen (Tastatur bleibt offen)
+const nameHit = s => !ui.q || s.name.toLowerCase().includes(ui.q.toLowerCase());
+const searchBox = c => c.students.length >= 10 ? `<input class="field search" id="nameq" type="search" placeholder="Name suchen …" value="${esc(ui.q || '')}" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="search">` : '';
+document.addEventListener('input', e => {
+  if (e.target.id !== 'nameq') return;
+  ui.q = e.target.value.trim();
+  document.querySelectorAll('[data-name]').forEach(el => { el.hidden = !!ui.q && !el.dataset.name.includes(ui.q.toLowerCase()); });
+});
 
 // Abwesend an diesem Tag? Dann gibt es dort nichts zu benoten.
 const isAbsentOn = (c, sid, d) => data.entries.some(e => e.c === c.id && e.s === sid && e.d === d && e.t === 'an' && e.v === 'A');
@@ -574,7 +591,7 @@ const pasBtn = (s, cur) => `<button class="v pas${cur && cur.v === PAS ? ' on' :
 function rowHTML(c, s) {
   const type = curType(c), t = typeOf(c, type), kind = kindOf(c, type);
   if (type !== 'an' && isAbsentOn(c, s.id, ui.date)) {
-    return `<div class="srow absent" data-row="${s.id}">
+    return `<div class="srow absent" data-row="${s.id}" data-name="${esc(s.name.toLowerCase())}"${nameHit(s) ? '' : ' hidden'}>
       <a class="sname-wrap" href="#/s/${c.id}/${s.id}"><span class="sname">${esc(s.name)}${fromTag(s)}</span></a>
       <span class="abstag">abwesend</span></div>`;
   }
@@ -602,7 +619,7 @@ function rowHTML(c, s) {
       `<button class="v ${vc} ${curV === v ? 'on' : ''}${label.length > 1 && !SYM[label] ? ' wide' : ''}" data-a="mark" data-s="${s.id}" data-v="${v}" aria-label="${esc(t.label + ' ' + label)}">${glyph(label)}</button>`).join('') + pasBtn(s, cur);
     cls = vals.length > 3 ? ' five' : '';
   }
-  return `<div class="srow${cls}" data-row="${s.id}">
+  return `<div class="srow${cls}" data-row="${s.id}" data-name="${esc(s.name.toLowerCase())}"${nameHit(s) ? '' : ' hidden'}>
     <a class="sname-wrap" href="#/s/${c.id}/${s.id}"><span class="sname">${isRisk(stats(c, s.id)) ? WARN : ''}${esc(s.name)}${fromTag(s)}</span>${meta ? `<span class="smeta">${meta}</span>` : ''}</a>
     <div class="vals">${btns}</div></div>`;
 }
@@ -782,7 +799,7 @@ function metricBase(c, st, k) {
 function viewOverview(c) {
   const rows = [...c.students].sort(byName).map(s => {
     const st = stats(c, s.id);
-    return `<a class="orow" href="#/s/${c.id}/${s.id}">
+    return `<a class="orow" href="#/s/${c.id}/${s.id}" data-name="${esc(s.name.toLowerCase())}"${nameHit(s) ? '' : ' hidden'}>
       <div class="otop"><span class="av ${avc(s.name)}">${esc(initials(s.name))}</span><span class="oname">${esc(s.name)}${fromTag(s)}</span>${isRisk(st) ? WARN : ''}${ICON.chev}</div>
       ${(() => { const tr = trendOf(c, s.id); return `<div class="otrend">
         ${st.total == null ? '<span class="tot">Ø –</span>' : `<span class="tot ${gradeCls(st.total)}">Ø ${fmtNum(st.total)}${trendIcon(tr)}</span>${(p => `<span class="prop ${p.close ? 'close' : gradeCls(p.n)}" title="Notenvorschlag">${p.text}</span>`)(proposal(st.total))}`}
@@ -790,7 +807,7 @@ function viewOverview(c) {
       ${(() => { const m = visKeys(c).map(k => [k, metricHTML(c, st, k)]).filter(([, v]) => v !== dash);
         return m.length ? `<div class="metrics">${m.map(([k, v]) => `<span class="met"><span class="ml">${esc(shortOf(c, k))}</span><span class="mv">${v}</span></span>`).join('')}</div>` : ''; })()}</a>`;
   }).join('');
-  return `${periodSeg(c)}<div class="card">${rows}</div>
+  return `${periodSeg(c)}${searchBox(c)}<div class="card">${rows}</div>
     <p class="legend">Ø = Gesamtnote ${esc(periodText())} · ${esc(weightSummary(c))} · Kästchen = Notenvorschlag (gerundet; bei x,5 knapp – du entscheidest)</p>
     <button class="btn secondary block" data-a="exportMenu">${ICON.download} Exportieren</button>`;
 }
@@ -2321,7 +2338,7 @@ const actions = {
         data.entries.push({ id: uid(), c: c.id, s: s.id, d: ui.date, t: type, v: d.v }); n++;
       }
     }
-    await save(); render(); toast(n ? `${n}× ${type === 'an' ? 'anwesend' : 'als gebracht'} eingetragen` : 'Alle sind schon eingetragen', n ? undo : null);
+    await save(); render(); toast(n ? `${n}× ${type === 'an' ? 'anwesend' : type === 'hu' ? 'als gebracht' : valInfo(c, type, d.v)[1]} eingetragen` : 'Alle sind schon eingetragen', n ? undo : null);
   },
 
   async studentMenu() {
