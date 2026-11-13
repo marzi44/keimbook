@@ -8,7 +8,7 @@ const PUBLIC_KEY = {
   x: 'kHkzCWyGjuxGxGf_3AMH2F_MKEWEjH1hfCnBf7K1Imo',
   y: 'Fv556fMFzralLJTUqYxNxI68b9Fd4ctkLzgn07BzKj0'
 };
-const APP_VERSION = '5.3';
+const APP_VERSION = '5.4';
 
 const TYPES = {
   ma: { label: 'Mitarbeit', long: 'Mitarbeit', icon: 'spark', vals: [['+', '+', 'g'], ['~', '~', 'm'], ['-', '−', 'b']] },
@@ -463,6 +463,7 @@ function render() {
   else if (view === 'einstellungen') { key = 'set'; html = viewSettings(); }
   else if (view === 'hilfe') { key = 'help'; html = viewHelp(); }
   else if (view === 'stundenplan') { key = 'plan'; html = viewPlan(); }
+  else if (view === 'zn' && getClass(a)) { key = 'zn' + a; html = viewZn(getClass(a)); }
   else if (view === 'sa' && getClass(a)) { const t = b && getTest(getClass(a), b); key = 'sa' + a + (t ? t.id : ''); html = t ? viewTest(getClass(a), t) : viewTests(getClass(a)); }
   else {
     if (location.hash && location.hash !== '#/') history.replaceState(null, '', '#/');
@@ -878,14 +879,14 @@ function viewOverview(c) {
     return `<a class="orow" href="#/s/${c.id}/${s.id}" data-name="${esc(s.name.toLowerCase())}"${nameHit(s) ? '' : ' hidden'}>
       <div class="otop"><span class="av ${avc(s.name)}">${esc(initials(s.name))}</span><span class="oname">${esc(s.name)}${fromTag(s)}</span>${isRisk(st) ? WARN : ''}${ICON.chev}</div>
       ${(() => { const tr = trendOf(c, s.id); return `<div class="otrend">
-        ${st.total == null ? '<span class="tot">Ø –</span>' : `<span class="tot ${gradeCls(st.total)}">Ø ${fmtNum(st.total)}${trendIcon(tr)}</span>${(p => `<span class="prop ${p.close ? 'close' : gradeCls(p.n)}" title="Notenvorschlag">${p.text}</span>`)(proposal(st.total))}`}
+        ${st.total == null ? '<span class="tot">Ø –</span>' : `<span class="tot ${gradeCls(st.total)}">Ø ${fmtNum(st.total)}${trendIcon(tr)}</span>${(p => `<span class="prop ${p.close ? 'close' : gradeCls(p.n)}" title="Notenvorschlag">${p.text}</span>`)(proposal(st.total))}`}${(z => z ? `<span class="znb" title="Zeugnisnote">Z ${z === 'nb' ? 'nb' : z}</span>` : '')(znForPeriod(s))}
         ${sparkHTML(tr)}</div>`; })()}
       ${(() => { const m = visKeys(c).map(k => [k, metricHTML(c, st, k)]).filter(([, v]) => v !== dash);
         return m.length ? `<div class="metrics">${m.map(([k, v]) => `<span class="met"><span class="ml">${esc(shortOf(c, k))}</span><span class="mv">${v}</span></span>`).join('')}</div>` : ''; })()}</a>`;
   }).join('');
   return `${periodSeg(c)}${missingHTML(c)}${searchBox(c)}<div class="card">${rows}</div>
     <p class="legend">Ø = Gesamtnote ${esc(periodText())} · ${esc(weightSummary(c))} · Kästchen = Notenvorschlag (gerundet; bei x,5 knapp – du entscheidest)</p>
-    <button class="btn secondary block" data-a="exportMenu">${ICON.download} Exportieren</button>`;
+    <div class="btnrow"><button class="btn secondary" data-a="goZn">${ICON.doc} Zeugnisnoten</button><button class="btn secondary" data-a="exportMenu">${ICON.download} Exportieren</button></div>`;
 }
 
 /* ---------- Gruppe aus mehreren Klassen ---------- */
@@ -1162,7 +1163,7 @@ function viewStudent(c, sid) {
   const tiles = `${periodSeg(c)}<div class="tiles">
     <a class="tile total" href="#/b/${c.id}"><div class="k">Gesamtnote · ${esc(PERIODS[ui.period])}</div>
       <div class="val">${st.total == null ? '–' : fmtNum(st.total)}${pr ? `<span class="propbig${pr.close ? ' close' : ''}">${pr.text}</span>` : ''}</div>
-      <div class="sub">${pr ? (pr.close ? `Knapp zwischen ${pr.text.replace('–', ' und ')} – du entscheidest · ` : `Vorschlag fürs Zeugnis: ${pr.text} · `) : ''}${esc(weightSummary(c))}</div></a>
+      <div class="sub">${(z => z ? `<b>Zeugnisnote: ${esc(znText(z))}</b> · ` : '')(znForPeriod(c.students.find(x => x.id === sid)))}${pr ? (pr.close ? `Knapp zwischen ${pr.text.replace('–', ' und ')} – du entscheidest · ` : `Vorschlag fürs Zeugnis: ${pr.text} · `) : ''}${esc(weightSummary(c))}</div></a>
     ${visKeys(c).map(tile).join('')}
   </div>`;
   const filt = ui.filter === 'all' || visKeys(c).includes(ui.filter) ? ui.filter : 'all';
@@ -1340,6 +1341,67 @@ function trendCard(c, sid) {
 }
 
 /* ---------- Einstellungen ---------- */
+/* ---------- Zeugnisnoten ---------- */
+// Die tatsächlich vergebene Note je Kind: s.zn = { '2026-s1': '2', '2026-y': '3' } – 'nb' = nicht beurteilt
+const ZN_KIND = { s1: 'Schulnachricht', y: 'Jahreszeugnis' };
+const znKey = (kind, y = schoolYear()) => `${y}-${kind}`;
+const znOf = (s, kind) => (s.zn || {})[znKey(kind)] || '';
+const znText = v => v === 'nb' ? 'nicht beurteilt' : v;
+const znKindNow = () => today() < periodRange('s2')[0] ? 's1' : 'y';
+// Zum gewählten Zeitraum passende Zeugnisnote (1. Sem. → Schulnachricht, 2. Sem./Jahr → Jahreszeugnis)
+const znForPeriod = s => ui.period === 's1' ? znOf(s, 's1') : ui.period === 'y' || ui.period === 's2' ? znOf(s, 'y') : '';
+function withPeriod(p, fn) { const keep = ui.period; ui.period = p; try { return fn(); } finally { ui.period = keep; } }
+function znRows(c, kind) {
+  return withPeriod(kind, () => [...c.students].sort(byName).map(s => { const st = stats(c, s.id); return { s, total: st.total, prop: proposal(st.total), zn: znOf(s, kind) }; }));
+}
+const gCls = g => g <= 2 ? 'g' : g <= 4 ? 'm' : 'b';
+function viewZn(c) {
+  setHeader({ title: 'Zeugnisnoten', back: '#/k/' + c.id, backLabel: c.name });
+  const kind = ui.znKind || znKindNow(), rows = znRows(c, kind), done = rows.filter(r => r.zn).length;
+  const open = rows.filter(r => !r.zn && r.prop && !r.prop.close).length;
+  const dist = [1, 2, 3, 4, 5].map(g => rows.filter(r => r.zn === String(g)).length);
+  return `<div class="hero"><div class="eyebrow">${esc(c.name)}</div><h1>Zeugnisnoten</h1><div class="sub">${ZN_KIND[kind]} ${esc(yearLabel())} · ${done} von ${rows.length} festgelegt</div></div>
+    <div class="seg"><button class="${kind === 's1' ? 'on' : ''}" data-a="znKind" data-v="s1">1. Semester</button><button class="${kind === 'y' ? 'on' : ''}" data-a="znKind" data-v="y">Jahreszeugnis</button></div>
+    ${open ? `<button class="btn secondary block" data-a="znTake">${ICON.check} Vorschläge übernehmen (${open})</button>
+      <p class="fine">Übernimmt nur eindeutige Vorschläge. Bei „knapp“ (z. B. 2–3, gestrichelt) entscheidest du selbst.</p>` : ''}
+    <div class="card">${rows.map(r => {
+      const lo = r.prop && r.prop.close ? Number(r.prop.text[0]) : 0;
+      return `<div class="srow znrow"><div class="sname">${esc(r.s.name)}${fromTag(r.s)}
+        <span class="enote">${r.total == null ? 'noch keine Noten' : `Ø ${fmtNum(r.total)} · Vorschlag ${r.prop.text}${r.prop.close ? ' (knapp)' : ''}`}</span></div>
+        <div class="vals">${[1, 2, 3, 4, 5].map(g => `<button class="v ${gCls(g)}${r.zn === String(g) ? ' on' : ''}${lo && (g === lo || g === lo + 1) ? ' hint' : ''}" data-a="znSet" data-s="${r.s.id}" data-v="${g}" aria-pressed="${r.zn === String(g)}" aria-label="Zeugnisnote ${g} für ${esc(r.s.name)}">${g}</button>`).join('')}
+          <button class="v absb${r.zn === 'nb' ? ' on' : ''}" data-a="znSet" data-s="${r.s.id}" data-v="nb" aria-pressed="${r.zn === 'nb'}" aria-label="nicht beurteilt – ${esc(r.s.name)}" title="nicht beurteilt">nb</button></div></div>`;
+    }).join('')}</div>
+    ${done ? `<p class="legend">Verteilung: ${dist.map((n, i) => `${i + 1}: ${n}`).join(' · ')}${rows.some(r => r.zn === 'nb') ? ` · nb: ${rows.filter(r => r.zn === 'nb').length}` : ''}</p>` : ''}
+    <p class="fine">Tippe die Note an, die du tatsächlich ins Zeugnis schreibst. Nochmal antippen entfernt sie. „nb“ = nicht beurteilt. Die Zeugnisnote ändert die Berechnung nicht – sie wird nur festgehalten und erscheint bei der Schülerin bzw. dem Schüler und im Export.</p>
+    <button class="btn secondary block" data-a="znExport">${ICON.download} Liste exportieren</button>`;
+}
+function znPDF(c, kind) {
+  const k = pdfKit(), { W, H, M, COL } = k, rows = znRows(c, kind);
+  let y = withPeriod(kind, () => pdfHead(k, 'ZEUGNISNOTEN', c.name, [`${ZN_KIND[kind]} ${yearLabel()} · Stand ${fmtDayLong(today())} · Gesamtnote gewichtet: ${weightSummary(c)}`]));
+  const X = { name: M + 8, tot: M + 230, prop: M + 300, zn: M + 390 };
+  const head = () => { k.rect(M, y, W - 2 * M, 20, COL.accS); const o = { size: 8, bold: true, color: COL.acc };
+    k.text(X.name, y + 13.5, 'NAME', o); k.text(X.tot, y + 13.5, 'Ø', o); k.text(X.prop, y + 13.5, 'VORSCHLAG', o); k.text(X.zn, y + 13.5, 'ZEUGNISNOTE', o); y += 20; };
+  head();
+  rows.forEach((r, i) => {
+    if (y + 22 > H - M - 20) { k.page(); y = M + 6; head(); }
+    if (i % 2) k.rect(M, y, W - 2 * M, 22, COL.zebra);
+    k.text(X.name, y + 14.5, k.fit(r.s.name + (r.s.from ? ` (${r.s.from})` : ''), 210, 9.5), { size: 9.5 });
+    k.text(X.tot, y + 14.5, r.total == null ? '–' : fmtNum(r.total), { size: 9.5, color: COL.ink2 });
+    k.text(X.prop, y + 14.5, r.prop ? r.prop.text + (r.prop.close ? ' (knapp)' : '') : '–', { size: 9.5, color: COL.ink2 });
+    k.text(X.zn, y + 14.5, r.zn ? znText(r.zn) : 'offen', { size: r.zn && r.zn !== 'nb' ? 11 : 9.5, bold: !!r.zn && r.zn !== 'nb', color: r.zn ? (r.zn === '5' ? COL.neg : COL.ink) : COL.ink3 });
+    y += 22;
+  });
+  const dist = [1, 2, 3, 4, 5].map(g => rows.filter(r => r.zn === String(g)).length);
+  y += 14; if (y > H - M - 30) { k.page(); y = M + 6; }
+  k.text(M, y, `Verteilung: ${dist.map((n, i) => `${i + 1}: ${n}`).join('   ')}   ·   festgelegt: ${rows.filter(r => r.zn).length} von ${rows.length}`, { size: 9, color: COL.ink2 });
+  return k.build(`Zeugnisnoten ${c.name}`, `KeimBook · ${c.name} · Zeugnisnoten`);
+}
+function znXLSX(c, kind) {
+  const rows = znRows(c, kind);
+  return xlsxBook([{ name: 'Zeugnisnoten', head: ['Name', 'Herkunft', 'Gesamtnote Ø', 'Vorschlag', 'Zeugnisnote'], widths: [28, 12, 14, 14, 16], num: [2],
+    rows: rows.map(r => [r.s.name, r.s.from || '', r.total == null ? '' : Math.round(r.total * 100) / 100, r.prop ? r.prop.text : '', r.zn ? (r.zn === 'nb' ? 'nicht beurteilt' : Number(r.zn)) : '']) }]);
+}
+
 /* ---------- Schularbeiten und Tests mit Punkten ---------- */
 // Eine Arbeit je Klasse: c.tests = [{ id, d, title, cat, max, key: [% für 1,2,3,4], w, pts: {sid: Punkte}, late: {sid: Datum} }]
 // Die Noten landen als normale Einträge (id „sa-…“) in der gewählten Kategorie – alle Auswertungen und Exporte sehen sie.
@@ -1541,6 +1603,7 @@ const HELP = [
     ['Was bedeutet „2–3“ beim Notenvorschlag?', 'Der Schnitt liegt genau zwischen zwei Noten (z. B. 2,5). Dann entscheidest du – die App schlägt bewusst nichts vor.'],
     ['Wie trage ich eine Schularbeit mit Punkten ein?', 'Klasse → Kategorie <b>Schriftlich</b> → <b>„Schularbeit mit Punkten“</b> (oder <b>••• → „Schularbeiten & Tests“</b>) → <b>„Neue Schularbeit / Test“</b> → Höchstpunkte eingeben. Dann je Kind die Punkte eintippen – die Note rechnet die App mit dem <b>Notenschlüssel</b> aus (änderbar), der <b>Notenspiegel</b> entsteht automatisch. Die Noten zählen ganz normal zur Gesamtnote.'],
     ['Kann ich in Prozent oder mit eigener Skala bewerten?', 'Ja, je Kategorie unter <b>„Bewertung & Gewichtung“</b>: 1–5, + ~ −, <b>Prozent</b> mit eigenen Notengrenzen oder eine <b>eigene Skala</b>.'],
+    ['Wo halte ich die Zeugnisnote fest?', 'Reiter <b>Übersicht</b> → <b>„Zeugnisnoten“</b> → 1. Semester oder Jahreszeugnis wählen → je Kind die Note antippen, die du ins Zeugnis schreibst („nb“ = nicht beurteilt). <b>„Vorschläge übernehmen“</b> trägt alle eindeutigen Vorschläge auf einmal ein. Die Liste kannst du als PDF oder Excel exportieren.'],
     ['Was zeigen „1. Sem.“, „2. Sem.“ und „Jahr“?', 'Den Zeitraum für Noten, Übersicht und Exporte. Wann das 2. Semester beginnt, stellst du unter <b>Zahnrad → Schuljahr</b> ein.'],
     ['Was bedeutet das rote „!“?', 'Die Gesamtnote liegt <b>über 4</b>. Bei der Schülerin bzw. dem Schüler kannst du dann eine <b>Frühwarnung</b> als PDF erstellen.']]],
   ['Exportieren', [
@@ -1570,7 +1633,7 @@ const HELP_KW = {
   '„P“': 'passiv keine leistung', 'nicht benoten': 'abwesend krank fehlt', 'anderen Tag': 'nachtragen datum gestern vergangen',
   'schneller': 'alle suche suchen', 'Sitzplan': 'plätze sitzordnung', 'Stundenplan': 'stunden zeiten uhrzeit automatisch öffnen aktuelle klasse doppelstunde', 'Wer kommt dran': 'zufall zufällig prüfen wiederholung',
   'notiere ich': 'eltern sprechtag gespräch notiz', 'Gesamtnote?': 'durchschnitt schnitt gewichtung prozent rechnen',
-  'Notenvorschlag': 'zeugnis knapp', 'Schularbeit mit Punkten': 'test punkte notenschlüssel notenspiegel prüfung', 'eigener Skala': 'punkte notengrenzen skala', 'Sem.': 'semester halbjahr', 'rote': 'gefährdet frühwarnung nicht genügend',
+  'Notenvorschlag': 'knapp vorschlag', 'Zeugnisnote fest': 'zeugnis schulnachricht jahreszeugnis konferenz semesternote', 'Schularbeit mit Punkten': 'test punkte notenschlüssel notenspiegel prüfung', 'eigener Skala': 'punkte notengrenzen skala', 'Sem.': 'semester halbjahr', 'rote': 'gefährdet frühwarnung nicht genügend',
   'PDF für ein Elterngespräch': 'drucken sprechtag', 'Notenkonferenz': 'konferenz zeugnis excel', 'Datei am iPhone': 'dateien icloud speichern teilen',
   'gespeichert?': 'cloud server datenschutz', 'sichere ich': 'backup export', 'neues Gerät': 'handy handywechsel tablet ipad übertragen umzug backup',
   'PIN vergessen': 'code gesperrt sperre', 'Sicherungspasswort vergessen': 'backup passwort', 'Safari': 'cache verlauf speicher löschen',
@@ -1791,6 +1854,7 @@ function applyYearChange(plan) {
       if (s.from) s.from = bumpName(s.from);
       if (s.talks) { s.talks = s.talks.filter(t => t.d >= a); if (!s.talks.length) delete s.talks; }
       if (s.fw) { s.fw = s.fw.filter(t => t.d >= a); if (!s.fw.length) delete s.fw; }
+      if (s.zn) { for (const k of Object.keys(s.zn)) if (Number(k.slice(0, 4)) < schoolYear()) delete s.zn[k]; if (!Object.keys(s.zn).length) delete s.zn; }
     });
   }
   data.entries = data.entries.filter(e => !gone.has(e.c) && e.d >= a);
@@ -2587,7 +2651,7 @@ function addNames(c, names) {
 }
 
 /* ---------- Aktionen ---------- */
-const currentClass = () => { const [v, a] = location.hash.replace(/^#\/?/, '').split('/'); return (v === 'k' || v === 's' || v === 'b' || v === 'kat' || v === 'sa') ? getClass(a) : null; };
+const currentClass = () => { const [v, a] = location.hash.replace(/^#\/?/, '').split('/'); return (v === 'k' || v === 's' || v === 'b' || v === 'kat' || v === 'sa' || v === 'zn') ? getClass(a) : null; };
 const currentStudentId = () => location.hash.replace(/^#\/?/, '').split('/')[2];
 const errMsg = e => e && e.message ? e.message : 'Datei konnte nicht gelesen werden';
 
@@ -2602,6 +2666,32 @@ const actions = {
   goHelp() { ui.helpBack = location.hash || '#/'; location.hash = '#/hilfe'; },
   goPlan() { ui.planBack = location.hash || '#/'; location.hash = '#/stundenplan'; },
   goTests() { const c = currentClass(); if (c) location.hash = '#/sa/' + c.id; },
+  goZn() { const c = currentClass(); if (!c) return; ui.znKind = ui.period === 's1' ? 's1' : ui.period === 'y' || ui.period === 's2' ? 'y' : znKindNow(); location.hash = '#/zn/' + c.id; },
+  znKind(d) { ui.znKind = d.v; render(); },
+  async znSet(d) {
+    const c = currentClass(), s = c && c.students.find(x => x.id === d.s); if (!s) return;
+    const kind = ui.znKind || znKindNow(), key = znKey(kind);
+    s.zn = s.zn || {};
+    if (s.zn[key] === d.v) delete s.zn[key]; else s.zn[key] = d.v;
+    if (!Object.keys(s.zn).length) delete s.zn;
+    await save(); render(); haptic();
+  },
+  async znTake() {
+    const c = currentClass(); if (!c) return;
+    const kind = ui.znKind || znKindNow(), key = znKey(kind), snap = JSON.stringify(c.students.map(s => s.zn || null));
+    let n = 0;
+    znRows(c, kind).forEach(r => { if (!r.zn && r.prop && !r.prop.close) { r.s.zn = Object.assign({}, r.s.zn, { [key]: String(r.prop.n) }); n++; } });
+    await save(); render();
+    toast(`${n} Zeugnisnoten übernommen`, { label: 'Rückgängig', fn: async () => { const old = JSON.parse(snap); c.students.forEach((s, i) => { if (old[i]) s.zn = old[i]; else delete s.zn; }); await save(); render(); toast('Rückgängig gemacht'); } });
+  },
+  async znExport() {
+    const c = currentClass(); if (!c) return;
+    const kind = ui.znKind || znKindNow();
+    const f = await modal({ title: 'Zeugnisnoten exportieren', text: `${c.name} · ${ZN_KIND[kind]} ${yearLabel()}`, options: [['pdf', 'Als PDF'], ['xlsx', 'Als Excel (.xlsx)']] });
+    const base = `Zeugnisnoten_${safeName(c.name)}_${kind === 's1' ? '1-Semester' : 'Jahr'}_${yearLabel().replace('/', '-')}`;
+    if (f === 'pdf') saveFile(base + '.pdf', 'application/pdf', znPDF(c, kind));
+    if (f === 'xlsx') saveFile(base + '.xlsx', XLSX_MIME, znXLSX(c, kind));
+  },
   async testNew() {
     const c = currentClass(); if (!c) return;
     const cats = testCats(c); if (!cats.length) return toast('Keine Noten-Kategorie mit Skala 1–5 oder Prozent');
@@ -2863,12 +2953,13 @@ const actions = {
     const c = currentClass(); if (!c) return;
     const k = await modal({
       title: c.name, options: [
-        ['cfg', 'Bewertung & Gewichtung'], ...(testCats(c).length ? [['sa', 'Schularbeiten & Tests (Punkte)']] : []), ['stud', 'Schüler:innen hinzufügen'],
+        ['cfg', 'Bewertung & Gewichtung'], ['zn', 'Zeugnisnoten'], ...(testCats(c).length ? [['sa', 'Schularbeiten & Tests (Punkte)']] : []), ['stud', 'Schüler:innen hinzufügen'],
         ['ren', 'Umbenennen'], ['hide', c.hidden ? 'Wieder einblenden' : 'Ausblenden'], ['del', 'Klasse löschen', true]
       ], cancel: 'Schließen'
     });
     if (k === 'cfg') location.hash = '#/b/' + c.id;
     if (k === 'sa') location.hash = '#/sa/' + c.id;
+    if (k === 'zn') location.hash = '#/zn/' + c.id;
     if (k === 'stud') {
       const o = await modal({ title: 'Schüler:innen hinzufügen', text: c.name, options: [['imp', 'Liste importieren (WebUntis, Excel, CSV)'], ['add', 'Namen eintippen'], ...(data.classes.length > 1 ? [['mix', 'Aus anderen Klassen übernehmen']] : [])] });
       if (o === 'imp') actions.importStudents();

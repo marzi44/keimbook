@@ -910,3 +910,11 @@ button.link.inl { padding: 0; font-size: inherit; display: inline; color: var(--
 .dateinp.num { width: 70px; text-align: center; }
 .dateinp.wide { width: 170px; }
 .kp { min-width: 62px; text-align: right; font-size: 14px; color: var(--ink-3); }
+
+/* ---------- Zeugnisnoten ---------- */
+.btnrow { display: flex; gap: 10px; }
+.btnrow .btn { flex: 1; }
+.znb { display: inline-flex; align-items: center; height: 24px; padding: 0 8px; margin-left: 6px; border-radius: 8px; background: var(--ink); color: var(--surface); font-size: 13px; font-weight: 750; }
+.znrow .sname .enote { display: block; font-size: 12.5px; color: var(--ink-3); }
+.znrow .v.hint:not(.on) { border-style: dashed; border-color: var(--mid); }
+.znrow .v.absb { margin-left: 0; }
