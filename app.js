@@ -8,7 +8,7 @@ const PUBLIC_KEY = {
   x: 'kHkzCWyGjuxGxGf_3AMH2F_MKEWEjH1hfCnBf7K1Imo',
   y: 'Fv556fMFzralLJTUqYxNxI68b9Fd4ctkLzgn07BzKj0'
 };
-const APP_VERSION = '5.6';
+const APP_VERSION = '5.7';
 
 const TYPES = {
   ma: { label: 'Mitarbeit', long: 'Mitarbeit', icon: 'spark', vals: [['+', '+', 'g'], ['~', '~', 'm'], ['-', '−', 'b']] },
@@ -276,12 +276,13 @@ async function removePin() {
 }
 function lockNow() {
   if (!lockCfg || locked) return;
+  if (trackTimer) { clearTimeout(trackTimer); trackTimer = 0; track(); writeData(); }
   locked = true; dek = null; data = { classes: [], entries: [] }; trk = null;
   const d = $('#dlg'); if (d.open) d.close();
   render();
 }
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden') { hiddenAt = Date.now(); return; }
+  if (document.visibilityState === 'hidden') { hiddenAt = Date.now(); if (trackTimer) flushTrack(); return; }
   if (lockCfg && !locked && hiddenAt && Date.now() - hiddenAt >= (lockCfg.after ?? 1) * 60000) lockNow();
   else if (hiddenAt && Date.now() - hiddenAt >= 5 * 60000) lessonJump();
 });
@@ -347,7 +348,7 @@ let trk = null;
 const hx = (o, skip) => JSON.stringify(o, (k, v) => k === 'u' || (skip && skip.includes(k)) ? undefined : v);
 function snapOf(d) {
   const m = { e: new Map(), c: new Map(), s: new Map(), t: new Map(), x: new Map(), d: new Map(), plan: hx(d.plan || []), prefs: hx(d.prefs || {}) };
-  (d.entries || []).forEach(e => m.e.set(e.id, [hx(e), e]));
+  (d.entries || []).forEach(e => { let h = ''; for (const k in e) if (k !== 'u') h += k + '\u0001' + e[k] + '\u0002'; m.e.set(e.id, [h, e]); });
   (d.classes || []).forEach(c => {
     m.c.set(c.id, [hx(c, ['students', 'tests']), c]);
     c.students.forEach(s => { m.s.set(c.id + ':' + s.id, [hx(s, ['talks']), s]); (s.talks || []).forEach(t => m.t.set(t.id, [hx(t), t])); });
@@ -434,11 +435,21 @@ async function readBackupFile(f, title = 'Sicherung öffnen') {
 }
 const mergeText = st => st.neu + st.geaendert + st.geloescht ? `${st.neu} neu, ${st.geaendert} geändert, ${st.geloescht} entfernt` : 'Beide Stände waren schon gleich';
 
-async function save() {
-  if (locked) return; // gesperrt: nichts überschreiben
-  track();
+async function writeData() {
   try { await DB.set('data', dek ? { enc: 1, ...(await Crypt.seal(dek, TE.encode(JSON.stringify(data)))) } : data); }
   catch (e) { toast('Speichern fehlgeschlagen: ' + e.message); }
+}
+// Änderungen werden kurz nach dem Antippen im Hintergrund mitgeschrieben – nicht während der Bedienung
+let trackTimer = 0;
+async function flushTrack() {
+  clearTimeout(trackTimer); trackTimer = 0;
+  if (locked) return;
+  track(); await writeData();
+}
+async function save() {
+  if (locked) return; // gesperrt: nichts überschreiben
+  await writeData();
+  clearTimeout(trackTimer); trackTimer = setTimeout(flushTrack, 1500);
 }
 const saveUi = () => lsSet('kb.ui', { tab: ui.tab, type: ui.type, filter: ui.filter, period: ui.period, layout: ui.layout });
 if (!['s1', 's2', 'y', 'all'].includes(ui.period)) ui.period = 'y';
@@ -451,7 +462,13 @@ function periodRange(p = ui.period) {
   const y = schoolYear(), from = `${y}-09-01`, mid = `${y + 1}-${sem2Start()}`, to = `${y + 1}-09-01`;
   return p === 's1' ? [from, mid] : p === 's2' ? [mid, to] : p === 'y' ? [from, to] : ['0000-00-00', '9999-12-31'];
 }
-const inPeriod = d => { const [a, b] = periodRange(); return d >= a && d < b; };
+// Zeitraum puffern – inPeriod läuft für jeden Eintrag; neu berechnet bei anderem Zeitraum, anderem 2.-Semester-Beginn oder nach 1 s
+let prC = null;
+const inPeriod = d => {
+  const now = Date.now(), s2 = sem2Start();
+  if (!prC || prC.p !== ui.period || prC.s2 !== s2 || now - prC.t > 1000) prC = { p: ui.period, s2, t: now, r: periodRange() };
+  return d >= prC.r[0] && d < prC.r[1];
+};
 const yearLabel = () => { const y = schoolYear(); return `${y}/${String(y + 1).slice(2)}`; };
 const periodText = () => ui.period === 'all' ? 'alle Einträge' : `${PERIODS[ui.period]} ${yearLabel()}`;
 const periodFile = () => ({ s1: '1-Semester', s2: '2-Semester', y: 'Schuljahr', all: 'Gesamt' })[ui.period] + '_' + yearLabel().replace('/', '-');
@@ -472,8 +489,18 @@ function setDayInfo(cid, d, field, v) {
   if (!x.thema && !x.hu) data.days = days().filter(y => y !== x);
 }
 const daysOf = cid => days().filter(x => x.c === cid && inPeriod(x.d)).sort((a, b) => a.d.localeCompare(b.d));
+// Einträge je Klasse und je Kind vorsortiert – wird neu gebaut, sobald sich die Liste ändert (neues Array, andere Länge, anderer Anfang/Ende)
+let eIdx = null;
+function entryIndex() {
+  const a = data.entries, key = a.length + '|' + (a.length ? a[0].id + '|' + a[a.length - 1].id : '');
+  if (eIdx && eIdx.arr === a && eIdx.key === key) return eIdx.map;
+  const map = new Map(), add = (k, e) => { const l = map.get(k); if (l) l.push(e); else map.set(k, [e]); };
+  for (const e of a) { add(e.c, e); add(e.c + '|' + e.s, e); }
+  eIdx = { arr: a, key, map };
+  return map;
+}
 // Auswertungen sehen nur den gewählten Zeitraum (Eintragen selbst ist davon unabhängig)
-const entriesOf = (cid, sid) => data.entries.filter(e => e.c === cid && (!sid || e.s === sid) && inPeriod(e.d));
+const entriesOf = (cid, sid) => (entryIndex().get(sid ? cid + '|' + sid : cid) || []).filter(e => inPeriod(e.d));
 
 /* ---------- Lizenz ---------- */
 async function verifyLicense(code) {
@@ -610,7 +637,7 @@ function viewHome() {
 }
 
 function classItem(c, isHidden = false) {
-  const last = data.entries.reduce((m, e) => e.c === c.id && e.d > m ? e.d : m, '');
+  const last = (entryIndex().get(c.id) || []).reduce((m, e) => e.d > m ? e.d : m, '');
   const risk = c.students.filter(s => isRisk(stats(c, s.id))).length;
   const body = `<a class="citem" href="#/k/${c.id}">
       <span class="ctile ${avc(c.name)}">${esc(shortClass(c.name))}</span>
@@ -1864,6 +1891,7 @@ function viewSettings() {
 
 // Verschlüsselte Sicherung aller Daten in eine Datei. true = gespeichert bzw. geteilt.
 async function writeBackup(name, extra = {}) {
+  await flushTrack();
   let k = await loadBackupKey();
   if (!k) {
     const pw = await secretSheet({ title: 'Sicherungspasswort festlegen', text: 'Sicherungen werden verschlüsselt. Mit diesem Passwort öffnest du sie später wieder – z. B. auf einem neuen Handy. Bitte gut merken oder notieren.', twice: true, ok: 'Festlegen und sichern' });
@@ -3552,6 +3580,7 @@ const actions = {
     const when = rb.when ? new Date(rb.when) : null;
     if (!await modal({ title: 'Jetzt abgleichen?', ok: 'Abgleichen',
       text: `Datei${when ? ` vom ${when.toLocaleDateString('de-AT')}, ${hm(when)} Uhr` : ''}: ${plural(rb.inc.classes.length, 'Klasse', 'Klassen')}, ${plural(rb.inc.entries.length, 'Eintrag', 'Einträge')}. Neuere Fassungen gewinnen, auf dem anderen Gerät Gelöschtes wird hier auch gelöscht.` })) return;
+    await flushTrack();
     const snap = JSON.stringify(data);
     const st = mergeData(rb.inc); resetTrack();
     await save(); location.hash = '#/'; render();
@@ -3588,6 +3617,7 @@ const actions = {
       migrate(data); trk = null;
       await save(); location.hash = '#/'; render(); return toast('Sicherung importiert');
     }
+    await flushTrack();
     const st = mergeData(inc); resetTrack();
     await save(); location.hash = '#/'; render(); toast('Ergänzt: ' + mergeText(st));
   },
