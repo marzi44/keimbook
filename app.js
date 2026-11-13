@@ -8,7 +8,7 @@ const PUBLIC_KEY = {
   x: 'kHkzCWyGjuxGxGf_3AMH2F_MKEWEjH1hfCnBf7K1Imo',
   y: 'Fv556fMFzralLJTUqYxNxI68b9Fd4ctkLzgn07BzKj0'
 };
-const APP_VERSION = '5.0';
+const APP_VERSION = '5.1';
 
 const TYPES = {
   ma: { label: 'Mitarbeit', long: 'Mitarbeit', icon: 'spark', vals: [['+', '+', 'g'], ['~', '~', 'm'], ['-', '−', 'b']] },
@@ -187,7 +187,8 @@ const ICON = {
   sliders: svg('<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>', 19, 2),
   close: svg('<path d="M7 7l10 10M17 7L7 17"/>', 18, 2),
   lock: svg('<rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8.5 10.5V7.5a3.5 3.5 0 0 1 7 0v3"/>', 18, 1.9),
-  info: svg('<circle cx="12" cy="12" r="8.5"/><path d="M12 11v5M12 8h.01" stroke-width="2.4"/>', 18, 1.9)
+  info: svg('<circle cx="12" cy="12" r="8.5"/><path d="M12 11v5M12 8h.01" stroke-width="2.4"/>', 18, 1.9),
+  help: svg('<circle cx="12" cy="12" r="8.5"/><path d="M9.6 9.4a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.2-2.4 3.7"/><path d="M12 17h.01" stroke-width="2.4"/>', 18, 1.9)
 };
 
 /* ---------- Speicher (IndexedDB, nur auf diesem Gerät) ---------- */
@@ -459,6 +460,7 @@ function render() {
   else if (view === 'neu' && data.classes.length) { key = 'neu' + (a || ''); html = viewCompose(a ? getClass(a) : null); }
   else if (view === 'verwalten') { key = 'man'; html = viewManage(); }
   else if (view === 'einstellungen') { key = 'set'; html = viewSettings(); }
+  else if (view === 'hilfe') { key = 'help'; html = viewHelp(); }
   else {
     if (location.hash && location.hash !== '#/') history.replaceState(null, '', '#/');
     key = 'home'; html = viewHome();
@@ -501,9 +503,10 @@ function viewHome() {
   const hidden = [...data.classes].filter(c => c.hidden).sort(byName);
   const list = visible.length ? `<div class="card">${visible.map(c => classItem(c)).join('')}</div>`
     : `<div class="card empty"><h2>Alle Klassen ausgeblendet</h2><p>Tippe unten auf „ausgeblendet“, um sie wieder einzublenden.</p></div>`;
-  return hero + list + `
+  return hero + yearHint() + list + `
     <button class="btn secondary block mt" data-a="addClass">${ICON.plus} Neue Klasse</button>
-    ${hidden.length ? `<div class="hidrow"><button class="link" data-a="goManage">${ICON.eyeOff} ${plural(hidden.length, 'Klasse', 'Klassen')} ausgeblendet</button></div>` : ''}`;
+    ${hidden.length ? `<div class="hidrow"><button class="link" data-a="goManage">${ICON.eyeOff} ${plural(hidden.length, 'Klasse', 'Klassen')} ausgeblendet</button></div>` : ''}
+    <div class="hidrow"><button class="link" data-a="goHelp">${ICON.help} Hilfe</button></div>`;
 }
 
 function classItem(c, isHidden = false) {
@@ -1334,10 +1337,100 @@ function trendCard(c, sid) {
 }
 
 /* ---------- Einstellungen ---------- */
+/* ---------- Hilfe: häufige Fragen (offline, durchsuchbar) ---------- */
+const HELP = [
+  ['Erste Schritte', [
+    ['Wie installiere ich KeimBook am iPhone oder iPad?', 'In <b>Safari</b> die Adresse der App öffnen → unten das <b>Teilen-Symbol</b> → <b>„Zum Home-Bildschirm“</b>. Öffne KeimBook danach immer über das Symbol am Home-Bildschirm – nur dort liegen deine Daten.'],
+    ['Wie installiere ich KeimBook unter Android?', 'In <b>Chrome</b> die Adresse öffnen → oben rechts die <b>drei Punkte</b> → <b>„App installieren“</b> (oder „Zum Startbildschirm hinzufügen“).'],
+    ['Wie hole ich die Schülerliste aus WebUntis?', 'Am Computer in WebUntis: links <b>Unterricht</b> → bei der Klasse das <b>Symbol ganz rechts</b> → <b>„Schüler*innen im Unterricht“</b> → kleines <b>CSV-Symbol</b> → oben rechts den grauen Balken <b>„LessonStudentList…“</b> anklicken und speichern – am besten in iCloud Drive oder Google Drive. Dann in KeimBook: <b>„Neue Klasse“ → „Schülerliste importieren“</b>.'],
+    ['Kann ich eine Klasse auch ohne WebUntis anlegen?', 'Ja: <b>„Neue Klasse“ → „Leere Klasse anlegen“</b>. Danach in der Klasse <b>••• → „Schüler:innen hinzufügen“</b> und die Namen eintippen – einen pro Zeile. Excel- und CSV-Listen gehen auch.'],
+    ['Wie stelle ich eine Gruppe aus mehreren Klassen zusammen?', '<b>„Neue Klasse“ → „Gruppe aus mehreren Klassen“</b>. Ganze Klassen anhaken oder über den kleinen Pfeil einzelne Kinder wählen. Die ursprünglichen Klassen bleiben unverändert.']]],
+  ['Im Unterricht', [
+    ['Wie trage ich ein?', 'Klasse öffnen → Reiter <b>Eintragen</b> → oben die <b>Kategorie</b> wählen (Anwesenheit, Mitarbeit, Mündlich …) → je Kind auf den Wert tippen. Gespeichert wird sofort.'],
+    ['Ich habe mich vertippt – was nun?', 'Unten erscheint kurz <b>„Rückgängig“</b>. Später: einfach den richtigen Wert antippen. Tippst du nochmals auf denselben Wert, kannst du eine <b>Anmerkung</b> schreiben oder den Eintrag <b>entfernen</b>.'],
+    ['Was bedeutet „P“?', '<b>P = passiv:</b> Das Kind war anwesend, hat aber keine Leistung gezeigt. Das wird vermerkt, zählt aber nicht zur Note.'],
+    ['Warum kann ich ein Kind nicht benoten?', 'Es ist an diesem Tag als <b>abwesend</b> eingetragen. Ändere bei Bedarf zuerst die Anwesenheit.'],
+    ['Wie trage ich für einen anderen Tag nach?', 'Mit den <b>Pfeilen neben dem Datum</b> – oder über <b>„Wochenüberblick“</b> direkt einen Tag antippen. „Zurück zu heute“ springt zurück.'],
+    ['Wie geht es schneller bei vielen Kindern?', '<b>„Alle übrigen anwesend“</b> bzw. <b>„Alle übrigen +“</b> trägt den Rest auf einmal ein. Ab 10 Kindern gibt es <b>„Name suchen …“</b>, und im <b>Sitzplan</b> tippst du direkt auf den Platz.'],
+    ['Wie richte ich den Sitzplan ein?', 'Über der Liste auf <b>Sitzplan</b> umschalten → <b>„Sitzplan bearbeiten“</b> → Anzahl der Spalten wählen und zwei Plätze nacheinander antippen, um sie zu tauschen.'],
+    ['Wie funktioniert „Wer kommt dran?“', 'Die App zieht zufällig ein Kind – bevorzugt jene mit wenigen Noten in der Kategorie. Abwesende und Kinder mit Note von heute werden übersprungen.'],
+    ['Wo notiere ich ein Elterngespräch?', 'Beim Kind auf <b>„+ Gespräch“</b> (oder <b>••• → „Gespräch notieren“</b>). Gespräche zählen nicht zur Note, erscheinen aber im Einzel-PDF.']]],
+  ['Noten', [
+    ['Wie entsteht die Gesamtnote?', 'Jede Kategorie wird für sich gemittelt und dann nach deiner <b>Gewichtung</b> zusammengerechnet (Klasse → <b>••• → „Bewertung & Gewichtung“</b>). Kategorien mit 0 % zählen nicht. Bei Mitarbeit gilt + = 1, ~ = 3, − = 5.'],
+    ['Was bedeutet „2–3“ beim Notenvorschlag?', 'Der Schnitt liegt genau zwischen zwei Noten (z. B. 2,5). Dann entscheidest du – die App schlägt bewusst nichts vor.'],
+    ['Kann ich in Prozent oder mit eigener Skala bewerten?', 'Ja, je Kategorie unter <b>„Bewertung & Gewichtung“</b>: 1–5, + ~ −, <b>Prozent</b> mit eigenen Notengrenzen oder eine <b>eigene Skala</b>.'],
+    ['Was zeigen „1. Sem.“, „2. Sem.“ und „Jahr“?', 'Den Zeitraum für Noten, Übersicht und Exporte. Wann das 2. Semester beginnt, stellst du unter <b>Zahnrad → Schuljahr</b> ein.'],
+    ['Was bedeutet das rote „!“?', 'Die Gesamtnote liegt <b>über 4</b>. Bei der Schülerin bzw. dem Schüler kannst du dann eine <b>Frühwarnung</b> als PDF erstellen.']]],
+  ['Exportieren', [
+    ['Wie bekomme ich ein PDF für ein Elterngespräch?', 'Schülerin bzw. Schüler öffnen → neben dem Verlauf <b>„Exportieren“ → PDF</b>.'],
+    ['Was nehme ich zur Notenkonferenz mit?', 'Reiter <b>Übersicht</b> → ganz unten <b>„Exportieren“ → „Kategorien“</b> → z. B. Mündlich, Schriftlich und Mitarbeit anhaken → PDF oder Excel.'],
+    ['Wo finde ich die Datei am iPhone?', 'Nach dem Export öffnet sich das <b>Teilen-Menü</b>. Wähle <b>„In Dateien sichern“</b> (z. B. iCloud Drive) oder schick die Datei direkt weiter. Exporte sind nicht verschlüsselt – lösche sie nach Gebrauch.']]],
+  ['Daten und Sicherheit', [
+    ['Wo sind meine Daten gespeichert?', 'Nur <b>auf diesem Gerät</b>, im Speicher der App. Es gibt keine Cloud und kein Konto – deshalb ist die <b>Sicherung</b> so wichtig.'],
+    ['Wie sichere ich meine Daten?', '<b>Zahnrad → „Sicherung exportieren“</b>. Die Datei ist mit deinem Sicherungspasswort verschlüsselt. Die App erinnert dich zweimal pro Woche.'],
+    ['Wie nehme ich meine Daten auf ein neues Gerät mit?', 'Am alten Gerät eine Sicherung exportieren (z. B. in iCloud Drive). Am neuen Gerät KeimBook installieren und freischalten → <b>Zahnrad → „Sicherung importieren“</b> → Sicherungspasswort → <b>„Alles ersetzen“</b>.'],
+    ['Ich habe meinen PIN vergessen.', 'Ohne PIN lassen sich die Daten nicht öffnen – das ist der Schutz. Über <b>„PIN vergessen?“</b> wird alles gelöscht; danach importierst du deine letzte Sicherung.'],
+    ['Ich habe mein Sicherungspasswort vergessen.', 'Ältere Sicherungen lassen sich dann nicht mehr öffnen. Deine Daten in der App sind nicht betroffen: Lege unter Zahnrad <b>„Passwort ändern“</b> ein neues fest und exportiere sofort eine neue Sicherung.'],
+    ['Darf ich Safari-Verlauf und Websitedaten löschen?', 'Vorsicht: Das Löschen von Websitedaten (oder das Entfernen der App) kann auch die Daten von KeimBook löschen. Mach vorher immer eine Sicherung.']]],
+  ['Schuljahr und Löschfristen', [
+    ['Wie starte ich ins neue Schuljahr?', 'Ab 1. September erscheint auf der Startseite <b>„Neues Schuljahr“</b> (auch unter Zahnrad → „Altes Schuljahr abschließen“). Archiv sichern, Klassen übernehmen (3B → 4B), alte Einträge löschen.'],
+    ['Was ist die Aufbewahrungsfrist?', 'Wie lange Daten nach Schuljahresende aufbewahrt werden – <b>Vorgabe deiner Schule</b>. Einstellen unter <b>Zahnrad → Datenschutz → Frist</b>. Danach erinnert dich die App, das Archiv zu löschen.']]],
+  ['Probleme', [
+    ['Die App zeigt noch eine alte Version.', 'App ganz schließen (aus der App-Übersicht wischen) und <b>zweimal</b> neu öffnen. Die Versionsnummer steht ganz unten in den Einstellungen.'],
+    ['Meine Lizenz ist abgelaufen.', 'Die App fragt nach einem neuen Lizenzcode. Deine Einträge bleiben auf dem Gerät – nach dem Freischalten ist alles wieder da.'],
+    ['An wen wende ich mich bei weiteren Fragen?', 'An die Person, von der du deinen Lizenzcode bekommen hast. Ausführlich ist alles im <b>Benutzerhandbuch</b> beschrieben.']]]
+];
+const helpText = h => h.replace(/<[^>]+>/g, '').toLowerCase();
+// Zusätzliche Suchwörter, die so nicht im Text stehen
+const HELP_KW = {
+  'iPhone oder iPad': 'apple ios installation app', 'Android': 'samsung tablet installation app', 'WebUntis?': 'import csv excel liste schülerliste',
+  'ohne WebUntis': 'namen eintippen schüler', 'Gruppe': 'religion wahlpflicht mischen', 'vertippt': 'falsch fehler löschen korrigieren',
+  '„P“': 'passiv keine leistung', 'nicht benoten': 'abwesend krank fehlt', 'anderen Tag': 'nachtragen datum gestern vergangen',
+  'schneller': 'alle suche suchen', 'Sitzplan': 'plätze sitzordnung', 'Wer kommt dran': 'zufall zufällig prüfen wiederholung',
+  'notiere ich': 'eltern sprechtag gespräch notiz', 'Gesamtnote?': 'durchschnitt schnitt gewichtung prozent rechnen',
+  'Notenvorschlag': 'zeugnis knapp', 'eigener Skala': 'punkte notengrenzen skala', 'Sem.': 'semester halbjahr', 'rote': 'gefährdet frühwarnung nicht genügend',
+  'PDF für ein Elterngespräch': 'drucken sprechtag', 'Notenkonferenz': 'konferenz zeugnis excel', 'Datei am iPhone': 'dateien icloud speichern teilen',
+  'gespeichert?': 'cloud server datenschutz', 'sichere ich': 'backup export', 'neues Gerät': 'handy handywechsel tablet ipad übertragen umzug backup',
+  'PIN vergessen': 'code gesperrt sperre', 'Sicherungspasswort vergessen': 'backup passwort', 'Safari': 'cache verlauf speicher löschen',
+  'neue Schuljahr': 'september jahreswechsel aufsteigen archiv', 'Aufbewahrungsfrist': 'löschfrist löschen dsgvo archiv',
+  'alte Version': 'update aktualisieren neu', 'Lizenz': 'code freischalten abgelaufen', 'weiteren Fragen': 'support kontakt handbuch'
+};
+const helpKw = q => Object.entries(HELP_KW).filter(([k]) => q.includes(k)).map(([, v]) => v).join(' ');
+// Treffer auch bei leicht anderer Wortform („neues“ findet „neue“, „sicherungen“ findet „sicherung“)
+const helpHit = (text, w) => text.includes(w) || (w.length > 4 && text.includes(w.slice(0, -1))) || (w.length > 6 && text.includes(w.slice(0, -2)));
+function viewHelp() {
+  const back = ui.helpBack && ui.helpBack.startsWith('#/einstellungen') ? ['#/einstellungen', 'Einstellungen'] : ['#/', 'Klassen'];
+  setHeader({ title: 'Hilfe', back: back[0], backLabel: back[1] });
+  return `<div class="hero"><h1>Hilfe</h1><div class="sub">Häufige Fragen – funktioniert auch ohne Internet.</div></div>
+    <input class="field search" id="helpq" type="search" placeholder="Frage suchen, z. B. „Sicherung“ …" autocomplete="off" spellcheck="false" enterkeyhint="search" aria-label="Hilfe durchsuchen">
+    ${HELP.map(([g, items]) => `<div class="helpgrp"><div class="section">${esc(g)}</div><div class="card faqs">${items.map(([q, a]) =>
+      `<details class="faq" data-q="${esc(helpText(q + ' ' + a + ' ' + helpKw(q)))}"><summary>${esc(q)}${ICON.down}</summary><div class="fa">${a}</div></details>`).join('')}</div></div>`).join('')}
+    <p class="nothing" id="helpnone" hidden>Nichts gefunden. Versuch ein anderes Wort – oder frag die Person, von der du deinen Lizenzcode hast.</p>
+    <div class="card mt"><button class="lrow" data-a="introAgain"><span class="licon">${ICON.spark}</span><span class="grow">Einführung nochmal ansehen</span>${ICON.chev}</button></div>
+    <p class="fine center">KeimBook · Version ${APP_VERSION}</p>`;
+}
+document.addEventListener('input', e => {
+  if (e.target.id !== 'helpq') return;
+  const words = e.target.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  let any = false;
+  document.querySelectorAll('.helpgrp').forEach(g => {
+    let n = 0;
+    g.querySelectorAll('.faq').forEach(f => {
+      const hit = words.every(w => helpHit(f.dataset.q, w));
+      f.hidden = !hit; if (hit) n++;
+      f.open = hit && words.length > 0 && words.join('').length >= 3;
+    });
+    g.hidden = !n; if (n) any = true;
+  });
+  $('#helpnone').hidden = any;
+});
+
 function viewSettings() {
   setHeader({ title: 'Einstellungen', back: '#/', backLabel: 'Klassen' });
   const exp = license.info.x ? 'bis ' + dt(license.info.x).toLocaleDateString('de-AT') : 'unbefristet';
   return `<div class="hero"><h1>Einstellungen</h1></div>
+    <div class="card"><button class="lrow" data-a="goHelp"><span class="licon">${ICON.help}</span><span class="grow">Hilfe und häufige Fragen</span>${ICON.chev}</button></div>
+
     <div class="section">Datensicherung</div>
     <div class="card">
       <button class="lrow" data-a="exportBackup"><span class="licon">${ICON.download}</span><span class="grow">Sicherung exportieren</span>${ICON.chev}</button>
@@ -1359,18 +1452,167 @@ function viewSettings() {
 
     <div class="section">Schuljahr ${esc(yearLabel())}</div>
     <div class="card"><label class="lrow static"><span class="licon">${ICON.list}</span><span class="grow">2. Semester beginnt am</span>
-      <input class="dateinp" type="date" data-ch="setSem2" value="${schoolYear() + 1}-${sem2Start()}"></label></div>
-    <p class="fine">Das Schuljahr läuft von 1. September bis 31. August. Trag hier den ersten Schultag nach den Semesterferien ein – danach richten sich Übersicht, Noten und Exporte für „1. Sem.“ und „2. Sem.“.</p>
+      <input class="dateinp" type="date" data-ch="setSem2" value="${schoolYear() + 1}-${sem2Start()}"></label>
+      <button class="lrow" data-a="yearWizard"><span class="licon">${ICON.list}</span><span class="grow">Altes Schuljahr abschließen</span>${oldStats().any ? '<span class="dot-badge"></span>' : ''}${ICON.chev}</button></div>
+    <p class="fine">Das Schuljahr läuft von 1. September bis 31. August. Trag hier den ersten Schultag nach den Semesterferien ein – danach richten sich Übersicht, Noten und Exporte für „1. Sem.“ und „2. Sem.“. Ab September schließt du das alte Schuljahr ab: Archiv sichern, Klassen übernehmen, alte Einträge löschen.</p>
 
     <div class="section">Lizenz</div>
     <div class="card"><div class="lrow static"><span class="licon">${ICON.key}</span><span class="grow">${esc(license.info.n)}</span><span class="muted">${esc(exp)}</span></div></div>
 
     <div class="section">Datenschutz</div>
-    <div class="card"><div class="lrow static info"><span class="licon">${ICON.shield}</span><span class="grow">Keine Cloud, kein Konto, keine Analyse. Die App sendet keine Daten ins Internet.</span></div></div>
+    <div class="card"><div class="lrow static info"><span class="licon">${ICON.shield}</span><span class="grow">Keine Cloud, kein Konto, keine Analyse. Die App sendet keine Daten ins Internet.</span></div>
+      <div class="lrow static"><span class="licon">${ICON.trash}</span><span class="grow nowrap">Frist</span>
+        <div class="mini-seg compact">${RETAIN.map(n => `<button class="${retainYears() === n ? 'on' : ''}" data-a="setRetain" data-v="${n}" aria-pressed="${retainYears() === n}">${n} J.</button>`).join('')}</div></div>
+      ${[...archives()].sort((a, b) => b.y - a.y).map(a => `<div class="lrow static"><span class="licon">${ICON.download}</span>
+        <span class="grow">Archiv ${esc(a.from === a.y ? yl(a.y) : yl(a.from) + '–' + yl(a.y))}<span class="lsub">${a.done ? `als gelöscht vermerkt am ${esc(fmtDate(a.done))}` : `${archiveDue(a) <= today() ? '<b class="b-t">Frist abgelaufen</b> · ' : ''}löschen ab ${esc(fmtDate(archiveDue(a)))}`}</span></span>
+        ${a.done ? '' : `<button class="link small" data-a="archDone" data-v="${esc(a.f)}">Gelöscht</button>`}</div>`).join('')}</div>
+    <p class="fine">Frist: wie lange Daten nach Ende eines Schuljahres aufbewahrt werden – bitte nach Vorgabe deiner Schule einstellen. Danach erinnert dich die App, das Archiv zu löschen, und Einträge auf dem Gerät müssen abgeschlossen werden.</p>
 
     <div class="section">Daten</div>
     <div class="card"><button class="lrow danger" data-a="wipe"><span class="licon">${ICON.trash}</span><span class="grow">Alle Daten löschen</span></button></div>
     <p class="fine center">KeimBook · Version ${APP_VERSION}</p>`;
+}
+
+// Verschlüsselte Sicherung aller Daten in eine Datei. true = gespeichert bzw. geteilt.
+async function writeBackup(name) {
+  let k = await loadBackupKey();
+  if (!k) {
+    const pw = await secretSheet({ title: 'Sicherungspasswort festlegen', text: 'Sicherungen werden verschlüsselt. Mit diesem Passwort öffnest du sie später wieder – z. B. auf einem neuen Handy. Bitte gut merken oder notieren.', twice: true, ok: 'Festlegen und sichern' });
+    if (!pw) return false;
+    await setBackupPassword(pw); k = await loadBackupKey();
+  }
+  const key = await crypto.subtle.importKey('raw', k.raw, 'AES-GCM', false, ['encrypt']);
+  const box = await Crypt.seal(key, TE.encode(JSON.stringify(data)));
+  const out = { app: 'klassenbuch', format: 2, exportiert: new Date().toISOString(),
+    enc: { alg: 'AES-256-GCM', kdf: 'PBKDF2-SHA-256', iter: k.iter, salt: toB64(k.salt), iv: toB64(box.iv), ct: toB64(box.ct) } };
+  if (!await saveFile(name, 'application/json', JSON.stringify(out))) return false;
+  backup.last = Date.now(); backup.snooze = 0;
+  await DB.set('backup', backup).catch(() => { });
+  if (location.hash.startsWith('#/einstellungen')) render();
+  return true;
+}
+
+/* ---------- Aufbewahrungsfristen ---------- */
+// Wie lange Daten eines Schuljahres nach dessen Ende aufbewahrt werden – Vorgabe der Schule (Standard 1 Jahr).
+const RETAIN = [1, 2, 3, 5];
+const retainYears = () => (data.prefs && data.prefs.retain) || 1;
+const yl = y => `${y}/${String(y + 1).slice(2)}`;
+const archives = () => (data.prefs && data.prefs.archives) || [];
+// Archiv bis Schuljahr y (Beginn Sept. y): löschen ab 1. September y + 1 + Frist
+const archiveDue = a => `${a.y + 1 + retainYears()}-09-01`;
+// Einträge vor diesem Datum haben die Frist überschritten
+const retainCutoff = () => `${schoolYear() - retainYears()}-09-01`;
+const fmtDate = iso => dt(iso).toLocaleDateString('de-AT');
+function noteArchive(file, first, last) {
+  const to = last ? Math.min(schoolYear(last), schoolYear() - 1) : schoolYear() - 1, from = first ? Math.min(schoolYear(first), to) : to;
+  const list = archives().filter(a => a.f !== file);
+  list.push({ y: to, from, f: file, d: today() });
+  data.prefs = Object.assign({}, data.prefs, { archives: list });
+}
+async function archiveCheck() {
+  if (!license || locked || $('#dlg').open) return;
+  if (((data.prefs || {}).archSnooze || '') > today()) return;
+  const a = archives().find(x => !x.done && archiveDue(x) <= today()); if (!a) return;
+  const ok = await modal({
+    title: 'Archiv löschen', ok: 'Erledigt – gelöscht', cancel: 'Später',
+    text: `Die Aufbewahrungsfrist für das Schuljahr ${a.from === a.y ? yl(a.y) : yl(a.from) + ' bis ' + yl(a.y)} ist abgelaufen (${plural(retainYears(), 'Jahr', 'Jahre')} nach Schuljahresende).`,
+    body: `<p class="stext">Lösche jetzt die Datei <b>„${esc(a.f)}“</b> aus iCloud Drive bzw. der Dateien-App – und auch ältere Sicherungen („KeimBook-Sicherung_…“) aus dieser Zeit. Dateien außerhalb der App kann KeimBook nicht selbst löschen.</p>`
+  });
+  if (ok) { a.done = today(); toast('Danke – Archiv als gelöscht vermerkt'); }
+  else data.prefs = Object.assign({}, data.prefs, { archSnooze: shiftDay(today(), 7) });
+  await save(); if (location.hash.startsWith('#/einstellungen')) render();
+}
+
+/* ---------- Schuljahreswechsel ---------- */
+// Alles vor dem 1. September des laufenden Schuljahres gehört zu einem früheren Schuljahr.
+const yearStart = () => periodRange('y')[0];
+function oldStats() {
+  const a = yearStart();
+  const e = data.entries.filter(x => x.d < a);
+  let talks = 0;
+  data.classes.forEach(c => c.students.forEach(s => { talks += (s.talks || []).filter(t => t.d < a).length + (s.fw || []).filter(t => t.d < a).length; }));
+  const ds = [...e.map(x => x.d), ...days().filter(x => x.d < a).map(x => x.d)].sort();
+  return { entries: e.length, days: days().filter(x => x.d < a).length, talks, first: ds[0] || '', last: ds[ds.length - 1] || '', any: e.length + talks + days().filter(x => x.d < a).length > 0 };
+}
+// Bezeichnung des abzuschließenden Zeitraums, z. B. „2026/27“ oder „2024/25 bis 2026/27“
+function oldLabel(first, last) {
+  const to = last ? Math.min(schoolYear(last), schoolYear() - 1) : schoolYear() - 1, from = first ? Math.min(schoolYear(first), to) : to;
+  const l = y => `${y}/${String(y + 1).slice(2)}`;
+  return from === to ? l(to) : `${l(from)} bis ${l(to)}`;
+}
+// „3B Mathematik“ → „4B Mathematik“, „1a“ → „2a“. Namen ohne Zahl am Anfang bleiben gleich.
+const bumpName = n => String(n || '').replace(/^(\s*)(\d{1,2})(?=\D|$)/, (m, sp, d) => sp + (Number(d) + 1));
+function yearHint() {
+  const o = oldStats();
+  const over = o.any && o.first < retainCutoff();
+  if (!o.any || (!over && ((data.prefs || {}).yearSnooze || '') > today())) return '';
+  return `<div class="hintcard yearcard${over ? ' over' : ''}"><div class="hh">${ICON.info} ${over ? 'Aufbewahrungsfrist abgelaufen' : `Neues Schuljahr ${esc(yearLabel())}`}</div>
+    <div class="hl">${over ? `Auf diesem Gerät liegen noch Einträge aus ${esc(oldLabel(o.first, o.last))}. Die Frist deiner Schule (${esc(plural(retainYears(), 'Jahr', 'Jahre'))} nach Schuljahresende) ist vorbei – bitte jetzt abschließen.`
+      : `Schließe das Schuljahr ${esc(oldLabel(o.first, o.last))} ab: Archiv sichern, Klassen übernehmen und alte Einträge vom Gerät löschen.`}</div>
+    <div class="hbtns"><button class="btn primary sm" data-a="yearWizard">Jetzt abschließen</button>${over ? '' : '<button class="link small" data-a="yearSnooze">Später</button>'}</div></div>`;
+}
+async function yearWizard() {
+  const o = oldStats();
+  if (!o.any) return modal({ title: 'Schuljahr abschließen', text: `Es gibt keine Einträge aus einem früheren Schuljahr. Das Schuljahr ${yearLabel()} läuft bis 31. August – ab 1. September kannst du es hier abschließen.`, ok: 'OK', cancel: 'Schließen' });
+  const label = oldLabel(o.first, o.last), fileLabel = label.replace(/\//g, '-').replace(/ bis /, '_bis_');
+  // 1 · Was passiert
+  if (!await modal({
+    title: `Schuljahr ${label} abschließen`, ok: 'Weiter',
+    text: 'In drei Schritten startest du sauber ins neue Schuljahr:',
+    body: `<ol class="ysteps"><li><b>Archiv sichern</b> – alle Daten verschlüsselt in eine Datei, z. B. in iCloud Drive. Damit kannst du später alles nachweisen.</li>
+      <li><b>Klassen übernehmen</b> – mit neuem Namen (z. B. 3B → 4B) oder löschen. Schüler:innen, Bewertung, Kategorien und Sitzplan bleiben.</li>
+      <li><b>Alte Daten löschen</b> – ${esc(plural(o.entries, 'Eintrag', 'Einträge'))}${o.talks ? `, ${esc(plural(o.talks, 'Gespräch bzw. Frühwarnung', 'Gespräche bzw. Frühwarnungen'))}` : ''}${o.days ? ` und ${esc(plural(o.days, 'Stundenthema', 'Stundenthemen'))}` : ''} vor dem 1. September werden vom Gerät entfernt.</li></ol>`
+  })) return;
+  // 2 · Archiv
+  const arch = await modal({ title: 'Archiv sichern', text: `Die Datei „KeimBook-Archiv_${fileLabel}.json“ ist mit deinem Sicherungspasswort verschlüsselt. Aufbewahrungsfrist: ${plural(retainYears(), 'Jahr', 'Jahre')} nach Schuljahresende – danach erinnert dich die App ans Löschen.`, ok: 'Archiv sichern' });
+  if (!arch) return;
+  if (!await writeBackup(`KeimBook-Archiv_${fileLabel}.json`)) return toast('Abgebrochen – ohne Archiv wird nichts gelöscht');
+  noteArchive(`KeimBook-Archiv_${fileLabel}.json`, o.first, o.last); await save();
+  // 3 · Klassen
+  const cls = [...data.classes].sort(byName);
+  const plan = cls.length ? await modal({
+    title: 'Klassen übernehmen', text: 'Neuen Namen prüfen. Klassen, die du nicht mehr unterrichtest, auf „Löschen“ stellen.', ok: 'Weiter',
+    body: `<div class="yclasses">${cls.map(c => `<div class="yrow" data-c="${c.id}">
+      <input class="yname" value="${esc(bumpName(c.name))}" aria-label="Neuer Name für ${esc(c.name)}" autocomplete="off">
+      <div class="mini-seg compact"><button type="button" data-k="keep" class="on" aria-pressed="true">Behalten</button><button type="button" data-k="del" aria-pressed="false">Löschen</button></div>
+      <div class="yold">bisher ${esc(c.name)}</div></div>`).join('')}</div>`,
+    mount(d) {
+      d.querySelectorAll('.yrow').forEach(r => r.querySelectorAll('[data-k]').forEach(b => b.addEventListener('click', () => {
+        r.querySelectorAll('[data-k]').forEach(x => { x.classList.toggle('on', x === b); x.setAttribute('aria-pressed', x === b); });
+        r.classList.toggle('off', b.dataset.k === 'del'); r.querySelector('.yname').disabled = b.dataset.k === 'del';
+      })));
+    },
+    collect: d => [...d.querySelectorAll('.yrow')].map(r => ({ id: r.dataset.c, del: r.classList.contains('off'), name: r.querySelector('.yname').value.trim() }))
+  }) : [];
+  if (!plan) return toast('Abgebrochen – das Archiv ist gespeichert, sonst wurde nichts geändert');
+  const del = plan.filter(p => p.del), keep = plan.filter(p => !p.del);
+  // 4 · Bestätigen
+  if (!await modal({
+    title: 'Schuljahr wechseln?', danger: true, ok: 'Schuljahr wechseln',
+    text: (parts => parts.slice(0, -1).join(', ') + ' und ' + parts[parts.length - 1])([keep.length ? `${plural(keep.length, 'Klasse', 'Klassen')} übernehmen` : '', del.length ? `${plural(del.length, 'Klasse', 'Klassen')} löschen` : '',
+      'alle Einträge vor dem 1. September entfernen'].filter(Boolean)).replace(/^ und /, '').replace(/^./, m => m.toUpperCase()) + '. Das Archiv ist gespeichert.'
+  })) return toast('Abgebrochen – das Archiv ist gespeichert, sonst wurde nichts geändert');
+  const snap = JSON.stringify(data);
+  applyYearChange(plan);
+  await save(); location.hash = '#/'; render();
+  toast(`Schuljahr ${yearLabel()} gestartet`, { label: 'Rückgängig', fn: async () => { data = JSON.parse(snap); await save(); render(); toast('Rückgängig gemacht'); } });
+}
+// Führt den Wechsel aus (ohne Rückfragen – auch für die Tests).
+function applyYearChange(plan) {
+  const a = yearStart(), gone = new Set(plan.filter(p => p.del).map(p => p.id));
+  data.classes = data.classes.filter(c => !gone.has(c.id));
+  for (const p of plan) {
+    const c = getClass(p.id); if (!c || p.del) continue;
+    if (p.name) c.name = p.name;
+    c.students.forEach(s => {
+      if (s.from) s.from = bumpName(s.from);
+      if (s.talks) { s.talks = s.talks.filter(t => t.d >= a); if (!s.talks.length) delete s.talks; }
+      if (s.fw) { s.fw = s.fw.filter(t => t.d >= a); if (!s.fw.length) delete s.fw; }
+    });
+  }
+  data.entries = data.entries.filter(e => !gone.has(e.c) && e.d >= a);
+  data.days = days().filter(x => !gone.has(x.c) && x.d >= a);
+  data.prefs = Object.assign({}, data.prefs, { yearDone: yearLabel() }); delete data.prefs.yearSnooze;
 }
 
 /* ---------- Erinnerung an die Datensicherung (zweimal pro Woche) ---------- */
@@ -1378,13 +1620,13 @@ const BACKUP_EVERY = 3.5 * 864e5, BACKUP_SNOOZE = 864e5;
 let backup = { last: 0, snooze: 0 }, backupAsking = false;
 const isoOf = ms => { const d = new Date(ms); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const backupWhen = () => backup.last ? relDay(isoOf(backup.last)) : 'noch nie';
-async function introCheck() {
-  if (!license || locked || $('#dlg').open || data.classes.length || (data.prefs && data.prefs.introDone)) return;
+async function introCheck(force) {
+  if (!license || locked || $('#dlg').open || (!force && (data.classes.length || (data.prefs && data.prefs.introDone)))) return;
   const pages = [
     ['Willkommen bei KeimBook', 'Dein Klassenbuch für Mitarbeit, Wiederholungen, Hausübungen und Anwesenheit – direkt im Unterricht, auch ohne Internet.', 'Weiter'],
     ['1 · Klasse anlegen', 'Tippe auf „Schülerliste importieren“ und wähle die Datei aus WebUntis. Die Klassen werden automatisch angelegt. Oder lege eine Klasse selbst an.', 'Weiter'],
     ['2 · Eintragen', 'Klasse öffnen, oben die Kategorie wählen und je Kind auf den Wert tippen. Vertippt? „Rückgängig“ in der Meldung unten. Im Reiter „Übersicht“ siehst du Noten, Trends und den Notenvorschlag.', 'Weiter'],
-    ['3 · Sicher und privat', 'Alle Daten bleiben nur auf diesem Gerät. Schalte unter dem Zahnrad die PIN-Sperre ein – dann ist alles verschlüsselt. Die App erinnert dich zweimal pro Woche an eine Sicherung.', 'Los geht’s']
+    ['3 · Sicher und privat', 'Alle Daten bleiben nur auf diesem Gerät. Schalte unter dem Zahnrad die PIN-Sperre ein – dann ist alles verschlüsselt. Die App erinnert dich zweimal pro Woche an eine Sicherung. Fragen? Unten auf der Startseite findest du die Hilfe.', 'Los geht’s']
   ];
   for (let i = 0; i < pages.length; i++) {
     const [title, text, ok] = pages[i];
@@ -2172,6 +2414,8 @@ const actions = {
     await loadData(); render(); toast('Freigeschaltet für ' + res.info.n); setTimeout(introCheck, 900);
   },
   goSettings() { location.hash = '#/einstellungen'; },
+  goHelp() { ui.helpBack = location.hash || '#/'; location.hash = '#/hilfe'; },
+  async introAgain() { await introCheck(true); },
   setPeriod(d) { ui.period = d.v; saveUi(); render(); },
   setLayout(d) { ui.layout = d.v; ui.seatEdit = false; ui.seatSel = null; saveUi(); render(); },
   seatEditToggle() { ui.seatEdit = !ui.seatEdit; ui.seatSel = null; const c = currentClass(); if (c && !ui.seatEdit) save(); render(); },
@@ -2784,21 +3028,17 @@ const actions = {
         e.w ? fmtW(e.w) : '1', e.n || '']));
     saveFile(`Einträge_${safeName(c.name)}_${periodFile()}.csv`, 'text/csv', toCSV(rows));
   },
-  async exportBackup() {
-    let k = await loadBackupKey();
-    if (!k) {
-      const pw = await secretSheet({ title: 'Sicherungspasswort festlegen', text: 'Sicherungen werden verschlüsselt. Mit diesem Passwort öffnest du sie später wieder – z. B. auf einem neuen Handy. Bitte gut merken oder notieren.', twice: true, ok: 'Festlegen und sichern' });
-      if (!pw) return;
-      await setBackupPassword(pw); k = await loadBackupKey();
-    }
-    const key = await crypto.subtle.importKey('raw', k.raw, 'AES-GCM', false, ['encrypt']);
-    const box = await Crypt.seal(key, TE.encode(JSON.stringify(data)));
-    const out = { app: 'klassenbuch', format: 2, exportiert: new Date().toISOString(),
-      enc: { alg: 'AES-256-GCM', kdf: 'PBKDF2-SHA-256', iter: k.iter, salt: toB64(k.salt), iv: toB64(box.iv), ct: toB64(box.ct) } };
-    if (!await saveFile(`KeimBook-Sicherung_${today()}.json`, 'application/json', JSON.stringify(out))) return;
-    backup.last = Date.now(); backup.snooze = 0;
-    await DB.set('backup', backup).catch(() => { });
-    if (location.hash.startsWith('#/einstellungen')) render();
+  async exportBackup() { await writeBackup(`KeimBook-Sicherung_${today()}.json`); },
+  yearWizard() { return yearWizard(); },
+  async setRetain(d) { data.prefs = Object.assign({}, data.prefs, { retain: Number(d.v) }); await save(); render(); },
+  async archDone(d) {
+    const a = archives().find(x => x.f === d.v); if (!a) return;
+    if (!await modal({ title: 'Archiv gelöscht?', text: `Hast du die Datei „${a.f}“ (und ältere Sicherungen aus dieser Zeit) gelöscht? Die App vermerkt das nur – Dateien außerhalb der App kann sie nicht selbst löschen.`, ok: 'Ja, gelöscht' })) return;
+    a.done = today(); await save(); render();
+  },
+  async yearSnooze() {
+    data.prefs = Object.assign({}, data.prefs, { yearSnooze: shiftDay(today(), 7) }); await save(); render();
+    toast('Erinnerung in einer Woche – oder jederzeit unter Einstellungen');
   },
   async importBackup(arg) {
     const f = arg instanceof File ? arg : await pickFile(); if (!f) return;
@@ -2889,7 +3129,7 @@ async function start() {
   }
   backup = Object.assign({ last: 0, snooze: 0 }, await DB.get('backup').catch(() => null));
   render();
-  setTimeout(() => { introCheck().then(backupCheck); }, 900);
+  setTimeout(() => { introCheck().then(backupCheck).then(archiveCheck); }, 900);
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => { });
 }
 

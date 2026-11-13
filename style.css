@@ -837,3 +837,32 @@ button.link.inl { padding: 0; font-size: inherit; display: inline; color: var(--
   :root { --ink-2: #2E3236; --ink-3: #4A4F55; --line: #BDBAB2; }
 }
 .seatctl.end { justify-content: flex-end; margin-top: -4px; }
+
+/* ---------- Schuljahreswechsel ---------- */
+.yearcard .hbtns { display: flex; align-items: center; gap: 14px; margin-top: 10px; }
+.ysteps { margin: 4px 0 14px; padding-left: 20px; font-size: 15px; line-height: 1.45; color: var(--ink-2); }
+.ysteps li + li { margin-top: 8px; }
+.ysteps b { color: var(--ink); }
+.yclasses { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
+.yrow { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 6px 10px; padding: 10px 12px; border-radius: 14px; background: var(--surface-2); }
+.sheet .yrow input.yname { margin: 0; min-width: 0; grid-column: 1 / -1; }
+.yrow .yold { grid-row: 2; grid-column: 1; font-size: 13px; color: var(--ink-3); }
+.yrow .mini-seg { grid-row: 2; grid-column: 2; }
+.yrow.off input.yname { opacity: .45; text-decoration: line-through; }
+.yrow .mini-seg button[data-k="del"].on { color: var(--neg); }
+.dot-badge { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); flex: none; margin-right: 6px; }
+.lrow .lsub { display: block; font-size: 13px; color: var(--ink-3); margin-top: 2px; }
+.yearcard.over { background: var(--neg-soft); }
+.yearcard.over .hh { color: var(--neg); }
+
+/* ---------- Hilfe ---------- */
+#helpq { margin-bottom: 4px; }
+.faq summary { list-style: none; display: flex; align-items: center; gap: 10px; padding: 14px 16px; font-size: 16px; font-weight: 600; cursor: pointer; }
+.faq summary::-webkit-details-marker { display: none; }
+.faq summary svg { flex: none; margin-left: auto; color: var(--ink-3); transition: transform .2s; }
+.faq[open] summary svg { transform: rotate(180deg); }
+.faq + .faq { border-top: 1px solid var(--line); }
+.faq .fa { padding: 0 16px 14px; font-size: 15px; line-height: 1.5; color: var(--ink-2); }
+.faq .fa b { color: var(--ink); }
+.hidrow .link svg { vertical-align: -3px; }
+@media (prefers-reduced-motion: reduce) { .faq summary svg { transition: none; } }
