@@ -8,7 +8,7 @@ const PUBLIC_KEY = {
   x: 'kHkzCWyGjuxGxGf_3AMH2F_MKEWEjH1hfCnBf7K1Imo',
   y: 'Fv556fMFzralLJTUqYxNxI68b9Fd4ctkLzgn07BzKj0'
 };
-const APP_VERSION = '5.7';
+const APP_VERSION = '5.8';
 
 const TYPES = {
   ma: { label: 'Mitarbeit', long: 'Mitarbeit', icon: 'spark', vals: [['+', '+', 'g'], ['~', '~', 'm'], ['-', '−', 'b']] },
@@ -1678,14 +1678,24 @@ const BELLS = [['07:55', '08:45'], ['08:50', '09:40'], ['09:55', '10:45'], ['10:
 const WD = ['Mo', 'Di', 'Mi', 'Do', 'Fr'];
 const bells = () => (data.prefs && data.prefs.bells) || BELLS;
 const plan = () => (data.plan || []).filter(p => getClass(p.c) && p.h < bells().length);
-const planAt = (wd, h) => plan().find(p => p.wd === wd && p.h === h);
+// A/B-Wochen: Einträge mit w = 'A' oder 'B' gelten nur in dieser Woche, ohne w in jeder Woche.
+// prefs.abRef = Montag einer A-Woche; gezählt wird in Kalenderwochen (nach Ferien bei Bedarf „Diese Woche ist …“ neu setzen).
+const abOn = () => !!(data.prefs && data.prefs.ab);
+const mondayOf = iso => shiftDay(iso, -((dt(iso).getDay() + 6) % 7));
+function weekType(iso = today()) {
+  const ref = (data.prefs && data.prefs.abRef) || mondayOf(today());
+  const diff = Math.round((dt(mondayOf(iso)) - dt(ref)) / (7 * 864e5));
+  return ((diff % 2) + 2) % 2 === 0 ? 'A' : 'B';
+}
+const otherWeek = w => w === 'A' ? 'B' : 'A';
+const planAt = (wd, h, wk) => { const l = plan().filter(p => p.wd === wd && p.h === h); return (wk && abOn() && l.find(p => p.w === wk)) || l.find(p => !p.w) || (!abOn() ? l[0] : undefined); };
 const hm = d => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 const addMin = (t, m) => { const [a, b] = t.split(':').map(Number), x = Math.max(0, Math.min(1439, a * 60 + b + m)); return `${String(Math.floor(x / 60)).padStart(2, '0')}:${String(x % 60).padStart(2, '0')}`; };
 // Stundenblöcke eines Tages: aufeinanderfolgende Stunden derselben Klasse = Doppelstunde
-function dayBlocks(wd) {
+function dayBlocks(wd, wk) {
   const b = bells(), out = [];
   for (let h = 0; h < b.length; h++) {
-    const p = planAt(wd, h); if (!p) continue;
+    const p = planAt(wd, h, wk); if (!p) continue;
     const last = out[out.length - 1];
     if (last && last.c.id === p.c && last.end === h - 1) { last.end = h; last.to = b[h][1]; continue; }
     out.push({ c: getClass(p.c), h, end: h, from: b[h][0], to: b[h][1] });
@@ -1695,7 +1705,7 @@ function dayBlocks(wd) {
 // Welche Stunde läuft gerade – oder beginnt in den nächsten 10 Minuten bzw. hat vor höchstens 5 Minuten geendet?
 function nowLesson(d = new Date()) {
   const wd = d.getDay(); if (wd < 1 || wd > 5) return null;
-  const t = hm(d), bl = dayBlocks(wd);
+  const t = hm(d), bl = dayBlocks(wd, abOn() ? weekType(isoOf(d.getTime())) : null);
   const run = bl.find(x => t >= x.from && t < x.to); if (run) return { ...run, soon: false };
   const next = bl.find(x => t < x.from && t >= addMin(x.from, -10)); if (next) return { ...next, soon: true };
   const prev = [...bl].reverse().find(x => t >= x.to && t < addMin(x.to, 5)); if (prev) return { ...prev, soon: false };
@@ -1726,18 +1736,26 @@ function viewPlan() {
   const back = ui.planBack && ui.planBack.startsWith('#/einstellungen') ? ['#/einstellungen', 'Einstellungen'] : ['#/', 'Klassen'];
   setHeader({ title: 'Stundenplan', back: back[0], backLabel: back[1] });
   const b = bells(), on = !(data.prefs && data.prefs.planOpen === false), nowL = nowLesson(), wdNow = new Date().getDay();
+  const ab = abOn(), thisWk = weekType(), wk = ab ? (ui.planWeek || thisWk) : null;
   const cell = (wd, h) => {
-    const p = planAt(wd, h), c = p && getClass(p.c), cur = nowL && wd === wdNow && h >= nowL.h && h <= nowL.end;
-    return `<button class="ttc${c ? ' ' + avc(c.name) : ''}${cur ? ' cur' : ''}" data-a="planCell" data-wd="${wd}" data-h="${h}" aria-label="${WD[wd - 1]}, ${h + 1}. Stunde: ${c ? esc(c.name) : 'frei'}">${c ? esc(shortClass(c.name)) : ''}</button>`;
+    const p = planAt(wd, h, wk), c = p && getClass(p.c), cur = nowL && wd === wdNow && h >= nowL.h && h <= nowL.end && (!ab || wk === thisWk);
+    return `<button class="ttc${c ? ' ' + avc(c.name) : ''}${cur ? ' cur' : ''}${ab && p && p.w ? ' wk' : ''}" data-a="planCell" data-wd="${wd}" data-h="${h}" aria-label="${WD[wd - 1]}, ${h + 1}. Stunde: ${c ? esc(c.name) + (ab && p.w ? ` (nur ${p.w}-Woche)` : '') : 'frei'}">${c ? esc(shortClass(c.name)) : ''}</button>`;
   };
+  const abSeg = ab ? `<div class="seg"><button class="${wk === 'A' ? 'on' : ''}" data-a="planWeek" data-v="A">A-Woche${thisWk === 'A' ? ' · jetzt' : ''}</button><button class="${wk === 'B' ? 'on' : ''}" data-a="planWeek" data-v="B">B-Woche${thisWk === 'B' ? ' · jetzt' : ''}</button></div>` : '';
   return `<div class="hero"><h1>Stundenplan</h1><div class="sub">Feld antippen und Klasse wählen. Zwei gleiche Stunden hintereinander gelten als Doppelstunde.</div></div>
     ${data.classes.length ? '' : '<div class="hintcard"><div class="hl">Lege zuerst eine Klasse an – dann kannst du sie hier eintragen.</div></div>'}
-    <div class="tt"><div class="tth"></div>${WD.map((d, i) => `<div class="tth${i + 1 === wdNow ? ' today' : ''}">${d}</div>`).join('')}
+    ${abSeg}<div class="tt"><div class="tth"></div>${WD.map((d, i) => `<div class="tth${i + 1 === wdNow ? ' today' : ''}">${d}</div>`).join('')}
       ${b.map(([f], h) => `<div class="ttn"><b>${h + 1}.</b><small>${esc(f)}</small></div>${[1, 2, 3, 4, 5].map(wd => cell(wd, h)).join('')}`).join('')}</div>
     <div class="section">Beim Öffnen</div>
     <div class="card"><div class="lrow static"><span class="licon">${ICON.spark}</span><span class="grow">Direkt zur aktuellen Stunde</span>
       <div class="mini-seg compact"><button class="${on ? 'on' : ''}" data-a="planOpen" data-v="1" aria-pressed="${on}">Ein</button><button class="${on ? '' : 'on'}" data-a="planOpen" data-v="0" aria-pressed="${!on}">Aus</button></div></div></div>
     <p class="fine">Öffnest du KeimBook während einer Stunde (oder bis 10 Minuten davor), springt die App direkt in diese Klasse – Reiter Eintragen, heutiges Datum. Auf der Startseite steht oben immer die aktuelle Stunde.</p>
+    <div class="section">A/B-Wochen</div>
+    <div class="card"><div class="lrow static"><span class="licon">${ICON.list}</span><span class="grow">Wechselnde Wochen</span>
+      <div class="mini-seg compact"><button class="${ab ? 'on' : ''}" data-a="abSet" data-v="1" aria-pressed="${ab}">Ein</button><button class="${ab ? '' : 'on'}" data-a="abSet" data-v="0" aria-pressed="${!ab}">Aus</button></div></div>
+      ${ab ? `<div class="lrow static"><span class="licon">${ICON.spark}</span><span class="grow">Diese Woche ist</span>
+      <div class="mini-seg compact"><button class="${thisWk === 'A' ? 'on' : ''}" data-a="abThis" data-v="A" aria-pressed="${thisWk === 'A'}">A</button><button class="${thisWk === 'B' ? 'on' : ''}" data-a="abThis" data-v="B" aria-pressed="${thisWk === 'B'}">B</button></div></div>` : ''}</div>
+    <p class="fine">${ab ? 'Die Wochen wechseln automatisch jeden Montag. Stimmt es nach den Ferien nicht mehr, stell hier „Diese Woche ist“ richtig. Stunden mit gestricheltem Rand gelten nur in dieser Woche, die anderen jede Woche.' : 'Hat deine Schule A- und B-Wochen mit unterschiedlichem Stundenplan? Dann hier einschalten.'}</p>
     <div class="section">Stundenzeiten</div>
     <div class="card">${b.map(([f, t], h) => `<div class="lrow static bell"><span class="grow">${h + 1}. Stunde</span>
       <input class="dateinp" type="time" value="${esc(f)}" data-ch="setBell" data-i="${h}" data-k="0" aria-label="${h + 1}. Stunde Beginn">
@@ -1747,6 +1765,38 @@ function viewPlan() {
     ${plan().length ? '<div class="card mt"><button class="lrow danger" data-a="planClear"><span class="licon">' + ICON.trash + '</span><span class="grow">Stundenplan leeren</span></button></div>' : ''}`;
 }
 
+/* ---------- Was ist neu? (einmal nach einem Update) ---------- */
+const NEWS = [
+  ['5.8', ['Schülerliste mit mehreren Klassen (z. B. 7a, 7b, 7c) als eine Gruppe mit eigenem Namen importieren – z. B. „Biologie Labor“.', 'Stundenplan mit A- und B-Wochen.', 'Rückmeldung senden – in der Hilfe.']],
+  ['5.7', ['Deutlich schneller, auch mit einem vollen Schuljahr an Einträgen.']],
+  ['5.6', ['Notenspiegel einer Schularbeit als PDF – ohne Namen oder als Ergebnisliste.', 'HÜ-Thema steht jetzt auch im PDF und in Excel.']],
+  ['5.5', ['Handy und iPad abgleichen: Zahnrad → „Mit anderem Gerät abgleichen“.']],
+  ['5.4', ['Zeugnisnoten festhalten: Übersicht → „Zeugnisnoten“, mit Export als PDF oder Excel.']],
+  ['5.3', ['Schularbeiten mit Punkten: Kategorie Schriftlich → „Schularbeit mit Punkten“. Note und Notenspiegel kommen automatisch.']],
+  ['5.2', ['Stundenplan: Startseite ganz unten. Die App zeigt die aktuelle Stunde und öffnet die Klasse direkt.']],
+  ['5.1', ['Hilfe mit häufigen Fragen.', 'Schuljahreswechsel ab September und Löschfristen für Archive.']]
+];
+const verNum = v => String(v || '0').split('.').reduce((a, x, i) => a + Number(x) / (i ? 100 ** i : 1), 0);
+function newsSince(v) { return NEWS.filter(([nv]) => verNum(nv) > verNum(v)); }
+const newsHTML = list => `<div class="news">${list.map(([v, items]) => `<div class="nv">Version ${v}</div><ul>${items.map(t => `<li>${esc(t)}</li>`).join('')}</ul>`).join('')}</div>`;
+async function newsCheck() {
+  if (!license || locked || $('#dlg').open) return;
+  const p = data.prefs || {};
+  // Neu installiert: nichts zeigen (die Einführung erklärt alles). Bestehende Nutzung ohne Vermerk: alles seit 5.0.
+  const seen = p.seenVersion || (data.classes.length ? '5.0' : APP_VERSION);
+  const list = newsSince(seen);
+  if (list.length) await modal({ title: 'Neu in KeimBook', text: `Seit deiner letzten Version (${seen}) ist dazugekommen:`, body: newsHTML(list), ok: 'Alles klar', cancel: 'Schließen' });
+  if (p.seenVersion !== APP_VERSION) { data.prefs = Object.assign({}, data.prefs, { seenVersion: APP_VERSION }); await save(); }
+}
+// Rückmeldung per Mail – nur App-Version und Gerät, keine Schülerdaten
+const FEEDBACK_TO = 'marcus.marzinger@keimgasse.at';
+function feedbackMail() {
+  const ua = navigator.userAgent, dev = /iPad/.test(ua) ? 'iPad' : /iPhone/.test(ua) ? 'iPhone' : /Android/.test(ua) ? 'Android' : /Mac/.test(ua) ? 'Mac' : /Windows/.test(ua) ? 'Windows' : 'anderes Gerät';
+  const os = (ua.match(/OS (\d+[_.]\d+)/) || ua.match(/Android (\d+(\.\d+)?)/) || [])[1] || '';
+  const body = `\n\n\n––––\nKeimBook ${APP_VERSION} · ${dev}${os ? ' ' + os.replace('_', '.') : ''}${matchMedia('(display-mode: standalone)').matches ? ' · als App installiert' : ' · im Browser'}\n(Bitte keine Namen oder Noten von Schüler:innen in die Mail schreiben.)`;
+  return `mailto:${encodeURIComponent(FEEDBACK_TO).replace('%40', '@')}?subject=${encodeURIComponent('Rückmeldung zu KeimBook ' + APP_VERSION)}&body=${encodeURIComponent(body)}`;
+}
+
 /* ---------- Hilfe: häufige Fragen (offline, durchsuchbar) ---------- */
 const HELP = [
   ['Erste Schritte', [
@@ -1754,7 +1804,7 @@ const HELP = [
     ['Wie installiere ich KeimBook unter Android?', 'In <b>Chrome</b> die Adresse öffnen → oben rechts die <b>drei Punkte</b> → <b>„App installieren“</b> (oder „Zum Startbildschirm hinzufügen“).'],
     ['Wie hole ich die Schülerliste aus WebUntis?', 'Am Computer in WebUntis: links <b>Unterricht</b> → bei der Klasse das <b>Symbol ganz rechts</b> → <b>„Schüler*innen im Unterricht“</b> → kleines <b>CSV-Symbol</b> → oben rechts den grauen Balken <b>„LessonStudentList…“</b> anklicken und speichern – am besten in iCloud Drive oder Google Drive. Dann in KeimBook: <b>„Neue Klasse“ → „Schülerliste importieren“</b>.'],
     ['Kann ich eine Klasse auch ohne WebUntis anlegen?', 'Ja: <b>„Neue Klasse“ → „Leere Klasse anlegen“</b>. Danach in der Klasse <b>••• → „Schüler:innen hinzufügen“</b> und die Namen eintippen – einen pro Zeile. Excel- und CSV-Listen gehen auch.'],
-    ['Wie stelle ich eine Gruppe aus mehreren Klassen zusammen?', '<b>„Neue Klasse“ → „Gruppe aus mehreren Klassen“</b>. Ganze Klassen anhaken oder über den kleinen Pfeil einzelne Kinder wählen. Die ursprünglichen Klassen bleiben unverändert.']]],
+    ['Wie stelle ich eine Gruppe aus mehreren Klassen zusammen?', 'Am schnellsten: Die Schülerliste der Gruppe aus WebUntis importieren. Stehen darin mehrere Klassen (z. B. 7a, 7b, 7c), fragt die App: <b>„Eine Gruppe daraus machen“</b> – Namen eingeben, z. B. <b>„Biologie Labor“</b>. Neben jedem Namen steht weiterhin die Klasse. Oder: <b>„Neue Klasse“ → „Gruppe aus mehreren Klassen“</b> und Kinder aus vorhandenen Klassen anhaken.']]],
   ['Im Unterricht', [
     ['Wie trage ich ein?', 'Klasse öffnen → Reiter <b>Eintragen</b> → oben die <b>Kategorie</b> wählen (Anwesenheit, Mitarbeit, Mündlich …) → je Kind auf den Wert tippen. Gespeichert wird sofort.'],
     ['Ich habe mich vertippt – was nun?', 'Unten erscheint kurz <b>„Rückgängig“</b>. Später: einfach den richtigen Wert antippen. Tippst du nochmals auf denselben Wert, kannst du eine <b>Anmerkung</b> schreiben oder den Eintrag <b>entfernen</b>.'],
@@ -1762,7 +1812,7 @@ const HELP = [
     ['Warum kann ich ein Kind nicht benoten?', 'Es ist an diesem Tag als <b>abwesend</b> eingetragen. Ändere bei Bedarf zuerst die Anwesenheit.'],
     ['Wie trage ich für einen anderen Tag nach?', 'Mit den <b>Pfeilen neben dem Datum</b> – oder über <b>„Wochenüberblick“</b> direkt einen Tag antippen. „Zurück zu heute“ springt zurück.'],
     ['Wie geht es schneller bei vielen Kindern?', '<b>„Alle übrigen anwesend“</b> bzw. <b>„Alle übrigen +“</b> trägt den Rest auf einmal ein. Ab 10 Kindern gibt es <b>„Name suchen …“</b>, und im <b>Sitzplan</b> tippst du direkt auf den Platz.'],
-    ['Wie trage ich meinen Stundenplan ein?', 'Startseite ganz unten <b>„Stundenplan“</b> → Feld antippen und Klasse wählen. Darunter die <b>Stundenzeiten</b> deiner Schule einstellen. Dann steht auf der Startseite oben die <b>aktuelle Stunde</b>, und beim Öffnen springt die App direkt in diese Klasse (abschaltbar).'],
+    ['Wie trage ich meinen Stundenplan ein?', 'Startseite ganz unten <b>„Stundenplan“</b> → Feld antippen und Klasse wählen. Darunter die <b>Stundenzeiten</b> deiner Schule einstellen. Dann steht auf der Startseite oben die <b>aktuelle Stunde</b>, und beim Öffnen springt die App direkt in diese Klasse (abschaltbar). Für <b>A- und B-Wochen</b>: im Stundenplan „Wechselnde Wochen“ einschalten.'],
     ['Wie richte ich den Sitzplan ein?', 'Über der Liste auf <b>Sitzplan</b> umschalten → <b>„Sitzplan bearbeiten“</b> → Anzahl der Spalten wählen und zwei Plätze nacheinander antippen, um sie zu tauschen.'],
     ['Wie funktioniert „Wer kommt dran?“', 'Die App zieht zufällig ein Kind – bevorzugt jene mit wenigen Noten in der Kategorie. Abwesende und Kinder mit Note von heute werden übersprungen.'],
     ['Wo notiere ich ein Elterngespräch?', 'Beim Kind auf <b>„+ Gespräch“</b> (oder <b>••• → „Gespräch notieren“</b>). Gespräche zählen nicht zur Note, erscheinen aber im Einzel-PDF.']]],
@@ -1792,15 +1842,15 @@ const HELP = [
   ['Probleme', [
     ['Die App zeigt noch eine alte Version.', 'App ganz schließen (aus der App-Übersicht wischen) und <b>zweimal</b> neu öffnen. Die Versionsnummer steht ganz unten in den Einstellungen.'],
     ['Meine Lizenz ist abgelaufen.', 'Die App fragt nach einem neuen Lizenzcode. Deine Einträge bleiben auf dem Gerät – nach dem Freischalten ist alles wieder da.'],
-    ['An wen wende ich mich bei weiteren Fragen?', 'An die Person, von der du deinen Lizenzcode bekommen hast. Ausführlich ist alles im <b>Benutzerhandbuch</b> beschrieben.']]]
+    ['An wen wende ich mich bei weiteren Fragen?', 'Weiter unten auf dieser Seite: <b>„Rückmeldung senden“</b> – öffnet eine Mail an das KeimBook-Team. Ausführlich ist alles im <b>Benutzerhandbuch</b> beschrieben.']]]
 ];
 const helpText = h => h.replace(/<[^>]+>/g, '').toLowerCase();
 // Zusätzliche Suchwörter, die so nicht im Text stehen
 const HELP_KW = {
   'iPhone oder iPad': 'apple ios installation app', 'Android': 'samsung tablet installation app', 'WebUntis?': 'import csv excel liste schülerliste',
-  'ohne WebUntis': 'namen eintippen schüler', 'Gruppe': 'religion wahlpflicht mischen', 'vertippt': 'falsch fehler löschen korrigieren',
+  'ohne WebUntis': 'namen eintippen schüler', 'Gruppe': 'religion wahlpflicht mischen modul labor gruppenname import mehrere klassen', 'vertippt': 'falsch fehler löschen korrigieren',
   '„P“': 'passiv keine leistung', 'nicht benoten': 'abwesend krank fehlt', 'anderen Tag': 'nachtragen datum gestern vergangen',
-  'schneller': 'alle suche suchen', 'Sitzplan': 'plätze sitzordnung', 'Stundenplan': 'stunden zeiten uhrzeit automatisch öffnen aktuelle klasse doppelstunde', 'Wer kommt dran': 'zufall zufällig prüfen wiederholung',
+  'schneller': 'alle suche suchen', 'Sitzplan': 'plätze sitzordnung', 'Stundenplan': 'stunden zeiten uhrzeit automatisch öffnen aktuelle klasse doppelstunde a-woche b-woche ab wechselnde wochen', 'Wer kommt dran': 'zufall zufällig prüfen wiederholung',
   'notiere ich': 'eltern sprechtag gespräch notiz', 'Gesamtnote?': 'durchschnitt schnitt gewichtung prozent rechnen',
   'Notenvorschlag': 'knapp vorschlag', 'Zeugnisnote fest': 'zeugnis schulnachricht jahreszeugnis konferenz semesternote', 'Schularbeit mit Punkten': 'test punkte notenschlüssel notenspiegel prüfung', 'eigener Skala': 'punkte notengrenzen skala', 'Sem.': 'semester halbjahr', 'rote': 'gefährdet frühwarnung nicht genügend',
   'PDF für ein Elterngespräch': 'drucken sprechtag', 'Notenkonferenz': 'konferenz zeugnis excel', 'Datei am iPhone': 'dateien icloud speichern teilen',
@@ -1820,7 +1870,9 @@ function viewHelp() {
     ${HELP.map(([g, items]) => `<div class="helpgrp"><div class="section">${esc(g)}</div><div class="card faqs">${items.map(([q, a]) =>
       `<details class="faq" data-q="${esc(helpText(q + ' ' + a + ' ' + helpKw(q)))}"><summary>${esc(q)}${ICON.down}</summary><div class="fa">${a}</div></details>`).join('')}</div></div>`).join('')}
     <p class="nothing" id="helpnone" hidden>Nichts gefunden. Versuch ein anderes Wort – oder frag die Person, von der du deinen Lizenzcode hast.</p>
-    <div class="card mt"><button class="lrow" data-a="introAgain"><span class="licon">${ICON.spark}</span><span class="grow">Einführung nochmal ansehen</span>${ICON.chev}</button></div>
+    <div class="card mt"><a class="lrow" href="${feedbackMail()}"><span class="licon">${ICON.speech}</span><span class="grow">Rückmeldung senden<span class="lsub">Fehler gefunden, Idee, Frage? Öffnet eine Mail – ohne Schülerdaten.</span></span>${ICON.chev}</a>
+      <button class="lrow" data-a="newsAll"><span class="licon">${ICON.star}</span><span class="grow">Was ist neu?</span>${ICON.chev}</button>
+      <button class="lrow" data-a="introAgain"><span class="licon">${ICON.spark}</span><span class="grow">Einführung nochmal ansehen</span>${ICON.chev}</button></div>
     <p class="fine center">KeimBook · Version ${APP_VERSION}</p>`;
 }
 document.addEventListener('input', e => {
@@ -2811,12 +2863,14 @@ function parseStudents(rows) {
   return { groups, hasClass: iK >= 0, total };
 }
 
-function addNames(c, names) {
-  const have = new Set(c.students.map(s => s.name.toLowerCase()));
+function addNames(c, names, from) {
+  // ohne Herkunft: gleicher Name = schon da; mit Herkunft (Gruppe): gleicher Name aus derselben Klasse = schon da
+  const key = (name, f) => name.toLowerCase() + (from ? '|' + (f || '').toLowerCase() : '');
+  const have = new Set(c.students.map(s => key(s.name, s.from)));
   let n = 0;
   for (const name of names) {
-    if (have.has(name.toLowerCase())) continue;
-    have.add(name.toLowerCase()); c.students.push({ id: uid(), name }); n++;
+    if (have.has(key(name, from))) continue;
+    have.add(key(name, from)); c.students.push(from ? { id: uid(), name, from } : { id: uid(), name }); n++;
   }
   return n;
 }
@@ -2913,16 +2967,42 @@ const actions = {
     }
   },
   openLesson(d) { ui.tab = 'e'; ui.date = today(); saveUi(); location.hash = '#/k/' + d.c; },
+  planWeek(d) { ui.planWeek = d.v; render(); },
+  async abSet(d) {
+    const on = d.v === '1';
+    data.prefs = Object.assign({}, data.prefs, { ab: on }, on && !(data.prefs && data.prefs.abRef) ? { abRef: mondayOf(today()) } : {});
+    if (!on) delete data.prefs.ab;
+    ui.planWeek = null; await save(); render();
+  },
+  async abThis(d) {
+    const mon = mondayOf(today());
+    data.prefs = Object.assign({}, data.prefs, { abRef: d.v === 'A' ? mon : shiftDay(mon, -7) });
+    ui.planWeek = null; await save(); render(); toast(`Diese Woche ist eine ${d.v}-Woche`);
+  },
   async planCell(d) {
-    const wd = Number(d.wd), h = Number(d.h), cur = planAt(wd, h);
+    const wd = Number(d.wd), h = Number(d.h), wk = abOn() ? (ui.planWeek || weekType()) : null, cur = planAt(wd, h, wk);
     if (!data.classes.length) return toast('Lege zuerst eine Klasse an');
     const opts = [...data.classes].filter(c => !c.hidden || (cur && cur.c === c.id)).sort(byName).map(c => [c.id, c.name]);
     if (cur) opts.push(['-', 'Frei (keine Stunde)', true]);
     const k = await modal({ title: `${['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag'][wd - 1]}, ${h + 1}. Stunde`, text: bells()[h].join(' – '), options: opts });
     if (!k) return;
-    data.plan = (data.plan || []).filter(p => !(p.wd === wd && p.h === h));
-    if (k !== '-') data.plan.push({ wd, h, c: k });
-    await save(); render();
+    if (!wk) {
+      data.plan = (data.plan || []).filter(p => !(p.wd === wd && p.h === h));
+      if (k !== '-') data.plan.push({ wd, h, c: k });
+      return save().then(render);
+    }
+    // A/B-Wochen: nur diese Woche oder jede Woche?
+    const scope = k === '-' ? 'this' : await modal({ title: getClass(k).name, text: `${WD[wd - 1]}, ${h + 1}. Stunde`, options: [['this', `Nur in der ${wk}-Woche`], ['both', 'Jede Woche']] });
+    if (!scope) return;
+    const here = (data.plan || []).filter(p => p.wd === wd && p.h === h), generic = here.find(p => !p.w);
+    let rest = (data.plan || []).filter(p => !(p.wd === wd && p.h === h));
+    if (scope === 'both') rest.push({ wd, h, c: k });
+    else {
+      const other = here.find(p => p.w === otherWeek(wk)) || (generic ? { wd, h, c: generic.c, w: otherWeek(wk) } : null);
+      if (other) rest.push(other);
+      if (k !== '-') rest.push({ wd, h, c: k, w: wk });
+    }
+    data.plan = rest; await save(); render();
   },
   async planOpen(d) { data.prefs = Object.assign({}, data.prefs, { planOpen: d.v === '1' }); await save(); render(); },
   async setBell(inp) {
@@ -2949,6 +3029,7 @@ const actions = {
     data.plan = []; await save(); render();
   },
   async introAgain() { await introCheck(true); },
+  newsAll() { modal({ title: 'Was ist neu?', body: newsHTML(NEWS), ok: 'Schließen', cancel: 'Zurück' }); },
   setPeriod(d) { ui.period = d.v; saveUi(); render(); },
   setLayout(d) { ui.layout = d.v; ui.seatEdit = false; ui.seatSel = null; saveUi(); render(); },
   seatEditToggle() { ui.seatEdit = !ui.seatEdit; ui.seatSel = null; const c = currentClass(); if (c && !ui.seatEdit) save(); render(); },
@@ -3196,8 +3277,34 @@ const actions = {
       groups = groups.map(([k, n]) => [k || 'Ohne Klasse', n]);
     }
     groups.sort((a, b) => a[0].localeCompare(b[0], 'de', { numeric: true }));
-
     const findClass = k => data.classes.find(c => c.name.toLowerCase() === k.toLowerCase());
+
+    // Mehrere Klassen in einer Liste (z. B. 7a, 7b, 7c): eine Gruppe mit eigenem Namen oder getrennte Klassen?
+    if (p.hasClass && groups.length > 1) {
+      const how = await modal({ title: `${groups.length} Klassen in der Liste`, text: groups.map(([k, n]) => `${k}: ${n.length}`).join(' · '),
+        options: [['group', 'Eine Gruppe daraus machen (z. B. Biologie Labor)'], ['split', `${groups.length} getrennte Klassen anlegen`]] });
+      if (!how) return;
+      if (how === 'group') {
+        const name = (await modal({ title: 'Name der Gruppe', text: 'Z. B. „Biologie Labor“ oder „Modul Basketball“. Neben jedem Namen steht weiterhin die Klasse.', input: true, placeholder: 'Gruppenname', ok: 'Anlegen' }) || '').trim();
+        if (!name) return;
+        const ex = findClass(name);
+        if (ex && !await modal({ title: `„${ex.name}“ gibt es schon`, text: 'Die Schüler:innen werden dort ergänzt. Wer schon drin ist, wird übersprungen.', ok: 'Ergänzen' })) return;
+        const c = ex || { id: uid(), name, students: [] };
+        if (!ex) data.classes.push(c);
+        let added = 0; for (const [k, names] of groups) added += addNames(c, names, k);
+        await save(); toast(`${ex ? 'Ergänzt' : 'Gruppe angelegt'}: ${plural(added, 'Person', 'Personen')}`);
+        location.hash = '#/k/' + c.id; return;
+      }
+    } else if (p.hasClass && groups.length === 1 && !findClass(groups[0][0])) {
+      const how = await modal({ title: 'Klasse importieren', text: `${groups[0][0]}: ${plural(groups[0][1].length, 'Person', 'Personen')}`,
+        options: [['keep', `Als „${groups[0][0]}“ anlegen`], ['name', 'Eigenen Namen vergeben (z. B. Biologie 7a)']] });
+      if (!how) return;
+      if (how === 'name') {
+        const name = (await modal({ title: 'Name', input: true, value: groups[0][0] + ' ', placeholder: 'z. B. Biologie Labor', ok: 'Weiter' }) || '').trim();
+        if (!name) return;
+        groups = [[name, groups[0][1]]];
+      }
+    }
     const summary = groups.map(([k, n]) => `${k}: ${plural(n.length, 'Person', 'Personen')} ${findClass(k) ? '(wird ergänzt)' : '(neu)'}`).join('\n');
     if (!await modal({ title: groups.length === 1 ? 'Klasse importieren' : `${groups.length} Klassen importieren`, text: summary, ok: 'Importieren' })) return;
 
@@ -3674,7 +3781,7 @@ async function start() {
   backup = Object.assign({ last: 0, snooze: 0 }, await DB.get('backup').catch(() => null));
   render();
   lessonJump();
-  setTimeout(() => { introCheck().then(backupCheck).then(archiveCheck); }, 900);
+  setTimeout(() => { introCheck().then(newsCheck).then(backupCheck).then(archiveCheck); }, 900);
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => { });
 }
 

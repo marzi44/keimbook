@@ -918,3 +918,8 @@ button.link.inl { padding: 0; font-size: inherit; display: inline; color: var(--
 .znrow .sname .enote { display: block; font-size: 12.5px; color: var(--ink-3); }
 .znrow .v.hint:not(.on) { border-style: dashed; border-color: var(--mid); }
 .znrow .v.absb { margin-left: 0; }
+.ttc.wk { border: 2px dashed currentColor; }
+.news { max-height: 52vh; overflow-y: auto; margin-bottom: 12px; }
+.news .nv { font-size: 13px; font-weight: 700; color: var(--accent); margin: 10px 0 4px; }
+.news ul { margin: 0; padding-left: 20px; font-size: 15px; line-height: 1.45; color: var(--ink-2); }
+.news li + li { margin-top: 4px; }
