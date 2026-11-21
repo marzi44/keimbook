@@ -8,7 +8,7 @@ const PUBLIC_KEY = {
   x: 'kHkzCWyGjuxGxGf_3AMH2F_MKEWEjH1hfCnBf7K1Imo',
   y: 'Fv556fMFzralLJTUqYxNxI68b9Fd4ctkLzgn07BzKj0'
 };
-const APP_VERSION = '5.9';
+const APP_VERSION = '5.10';
 
 const TYPES = {
   ma: { label: 'Mitarbeit', long: 'Mitarbeit', icon: 'spark', vals: [['+', '+', 'g'], ['~', '~', 'm'], ['-', '−', 'b']] },
@@ -1095,7 +1095,7 @@ function viewRating(c) {
       <div class="sub">Notenskala und Anteil an der Gesamtnote je Kategorie.</div></div>
     <div class="card">${rows || '<div class="nothing">Keine benotbare Kategorie sichtbar</div>'}</div>
     <p class="fine">${sumLine} · Kategorie antippen ändert die Notenskala (1–5, + ~ −, Prozent oder eigene). Je Kategorie wird ein Schnitt gebildet und mit ihrem Anteil gewichtet – 0 % zählt nicht. Eigene Kategorien zählen genauso: Noten-Kategorien direkt, <b>Messwerte</b> (z. B. Weitsprung) über einen Notenschlüssel. Notizen werden nicht benotet.</p>
-    ${data.classes.length > 1 ? `<button class="btn secondary block mt" data-a="cfgAll">Für alle Klassen übernehmen</button>` : ''}`;
+    ${data.classes.length > 1 ? `<button class="btn secondary block mt" data-a="cfgAll">Auf andere Klassen übernehmen</button>` : ''}`;
 }
 
 /* ---------- Kategorien je Klasse ---------- */
@@ -1188,6 +1188,40 @@ function bindScale(box, st, active = () => true) {
   box.addEventListener('input', onInput); box.addEventListener('change', onInput);
   paint();
   return check;
+}
+// Bewertungs-Einstellungen von einer Klasse auf eine andere übertragen – ohne deren Kategorien oder Einträge anzutasten.
+// Eigene Kategorien werden über Name und Art zugeordnet. Rückgabe: Hinweise zu bewusst Übersprungenem.
+function copyCfg(src, dst, what) {
+  const S = cfg(src), D = cfg(dst), notes = [], clone = o => JSON.parse(JSON.stringify(o));
+  const map = Object.fromEntries(BUILTIN.map(k => [k, k]));
+  for (const x of S.cats.custom) {
+    let y = D.cats.custom.find(z => z.kind === x.kind && z.label.trim().toLowerCase() === x.label.trim().toLowerCase());
+    if (!y && what.cats) { y = clone(x); if (catKeys(dst).includes(y.id)) y.id = uid(); D.cats.custom.push(y); }
+    if (y) map[x.id] = y.id;
+  }
+  const used = k => data.entries.some(e => e.c === dst.id && e.t === k);
+  for (const [sk, dk] of Object.entries(map)) {
+    if (what.weight && weighable(src, sk)) D.weight[dk] = S.weight[sk] || 0;
+    if (what.scale && kindOf(src, sk) === 'note') {
+      const sc = S.scale[sk] || 'grade', dc = D.scale[dk] || 'grade';
+      // eigene Stufen nicht ersetzen, wenn die Zielklasse damit schon Noten vergeben hat
+      if (dc === 'own' && (sc !== 'own' || JSON.stringify(S.own[sk]) !== JSON.stringify(D.own[dk])) && data.entries.some(e => e.c === dst.id && e.t === dk && String(e.v).startsWith('o:')))
+        notes.push(`${dst.name} · ${typeOf(dst, dk).label}: hat schon Noten in einer eigenen Skala`);
+      else {
+        D.scale[dk] = sc;
+        if (S.pct[sk]) D.pct[dk] = clone(S.pct[sk]);
+        if (sc === 'own' && S.own[sk]) {
+          if (dc === 'own' && used(dk) && JSON.stringify(S.own[sk]) !== JSON.stringify(D.own[dk])) { D.scale[dk] = dc; notes.push(`${dst.name} · ${typeOf(dst, dk).label}: eigene Skala unterscheidet sich, Einträge vorhanden`); }
+          else D.own[dk] = clone(S.own[sk]);
+        }
+      }
+    }
+    if (what.numkey && S.numkey && S.numkey[sk] && kindOf(dst, dk) === 'num') {
+      if (typeOf(dst, dk).high !== typeOf(src, sk).high || (typeOf(dst, dk).unit || '') !== (typeOf(src, sk).unit || '')) notes.push(`${dst.name} · ${typeOf(dst, dk).label}: andere Einheit oder Richtung`);
+      else D.numkey = Object.assign({}, D.numkey, { [dk]: clone(S.numkey[sk]) });
+    }
+  }
+  return notes;
 }
 function applyScale(c, k, st) {
   const cf = cfg(c);
@@ -1782,6 +1816,7 @@ function viewPlan() {
 
 /* ---------- Was ist neu? (einmal nach einem Update) ---------- */
 const NEWS = [
+  ['5.10', ['„Auf andere Klassen übernehmen“ (Bewertung & Gewichtung): Du wählst, was übernommen wird. Eigene Kategorien und Einträge der anderen Klassen bleiben erhalten.']],
   ['5.9', ['Eigene Kategorien zählen zur Gesamtnote – auch Messwerte wie Weitsprung oder 60-m-Lauf über einen eigenen Notenschlüssel (Bewertung & Gewichtung).']],
   ['5.8', ['Schülerliste mit mehreren Klassen (z. B. 7a, 7b, 7c) als eine Gruppe mit eigenem Namen importieren – z. B. „Biologie Labor“.', 'Stundenplan mit A- und B-Wochen.', 'Rückmeldung senden – in der Hilfe.']],
   ['5.7', ['Deutlich schneller, auch mit einem vollen Schuljahr an Einträgen.']],
@@ -3541,9 +3576,24 @@ const actions = {
   },
   async cfgAll() {
     const c = currentClass(); if (!c) return;
-    if (!await modal({ title: 'Für alle Klassen übernehmen?', text: `Notenskala und Gewichtung von „${c.name}“ werden für alle ${data.classes.length} Klassen übernommen.`, ok: 'Übernehmen' })) return;
-    data.classes.forEach(x => { if (x !== c) x.cfg = JSON.parse(JSON.stringify(cfg(c))); });
-    await save(); toast('Für alle Klassen übernommen');
+    const others = data.classes.filter(x => x !== c).sort(byName);
+    const what = { weight: true, scale: true, numkey: true, cats: false }, sel = new Set(others.map(x => x.id));
+    const ck = (k, l, sub) => `<button type="button" class="opt ck" data-w="${k}"><span class="chk"></span><span class="grow">${esc(l)}${sub ? `<span class="lsub">${esc(sub)}</span>` : ''}</span></button>`;
+    const r = await modal({ title: 'Einstellungen übernehmen', text: `Von „${c.name}“ auf andere Klassen. Kategorien und Einträge der anderen Klassen bleiben erhalten.`, ok: 'Übernehmen',
+      body: `<div class="section">Was?</div><div class="opts catpick">${ck('weight', 'Anteile an der Gesamtnote')}${ck('scale', 'Notenskalen', '1–5, + ~ −, Prozent, eigene Skala')}${ck('numkey', 'Notenschlüssel für Messwerte')}${ck('cats', 'Fehlende eigene Kategorien anlegen', 'z. B. Weitsprung – vorhandene bleiben unverändert')}</div>
+        <div class="section">Für welche Klassen?</div><div class="opts catpick">${others.map(x => `<button type="button" class="opt ck" data-c="${x.id}"><span class="chk"></span><span class="grow">${esc(x.name)}</span></button>`).join('')}</div>`,
+      mount(d) {
+        const paint = () => d.querySelectorAll('.opt.ck').forEach(b => { const on = b.dataset.w ? what[b.dataset.w] : sel.has(b.dataset.c); const ch = b.querySelector('.chk'); ch.className = 'chk' + (on ? ' on' : ''); ch.innerHTML = on ? ICON.check : ''; b.setAttribute('aria-pressed', on); });
+        d.querySelectorAll('.opt.ck').forEach(b => b.addEventListener('click', () => { if (b.dataset.w) what[b.dataset.w] = !what[b.dataset.w]; else if (sel.has(b.dataset.c)) sel.delete(b.dataset.c); else sel.add(b.dataset.c); paint(); }));
+        paint();
+      }, collect: () => true });
+    if (!r) return;
+    if (!sel.size || !Object.values(what).some(Boolean)) return toast('Nichts ausgewählt');
+    const snap = JSON.stringify(data.classes.map(x => x.cfg || null)), notes = [];
+    others.filter(x => sel.has(x.id)).forEach(x => notes.push(...copyCfg(c, x, what)));
+    await save(); render();
+    toast(`Übernommen für ${plural(sel.size, 'Klasse', 'Klassen')}${notes.length ? ` · ${notes.length} übersprungen` : ''}`, { label: 'Rückgängig', fn: async () => { const old = JSON.parse(snap); data.classes.forEach((x, i) => { if (old[i]) x.cfg = old[i]; else delete x.cfg; }); await save(); render(); toast('Rückgängig gemacht'); } });
+    if (notes.length) modal({ title: 'Teilweise übernommen', text: 'Diese Einstellungen wurden nicht übernommen, damit vorhandene Noten gültig bleiben:', body: `<ul class="news">${notes.map(n => `<li>${esc(n)}</li>`).join('')}</ul>`, ok: 'OK', cancel: 'Schließen' });
   },
   async entryWeight(d) {
     const e = data.entries.find(x => x.id === d.v); if (!e) return;

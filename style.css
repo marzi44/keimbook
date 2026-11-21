@@ -928,3 +928,4 @@ button.link.inl { padding: 0; font-size: inherit; display: inline; color: var(--
 .nkrow { display: grid; grid-template-columns: 1fr auto 90px 34px; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 15px; }
 .sheet .nkrow input { margin: 0; text-align: center; }
 .nkmode { margin: 6px 0 12px; }
+.opt .lsub { display: block; font-size: 13px; font-weight: 400; color: var(--ink-3); margin-top: 2px; }
