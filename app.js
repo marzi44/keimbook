@@ -8,7 +8,7 @@ const PUBLIC_KEY = {
   x: 'kHkzCWyGjuxGxGf_3AMH2F_MKEWEjH1hfCnBf7K1Imo',
   y: 'Fv556fMFzralLJTUqYxNxI68b9Fd4ctkLzgn07BzKj0'
 };
-const APP_VERSION = '0.2';
+const APP_VERSION = '0.3';
 
 const TYPES = {
   ma: { label: 'Mitarbeit', long: 'Mitarbeit', icon: 'spark', vals: [['+', '+', 'g'], ['~', '~', 'm'], ['-', '−', 'b']] },
@@ -432,8 +432,10 @@ function mergeData(inc) {
 }
 // Sicherungs- bzw. Abgleich-Datei öffnen (fragt nach dem Sicherungspasswort)
 async function readBackupFile(f, title = 'Sicherung öffnen') {
-  let j;
-  try { j = JSON.parse(await readText(f)); if (!j || j.app !== 'klassenbuch') throw 0; } catch { toast('Das ist keine gültige TeachersBook-Datei'); return null; }
+  let j, raw;
+  try { raw = await readText(f); } catch { toast('Die Datei lässt sich nicht lesen'); return null; }
+  if (raw.startsWith('%PDF')) { raw = extractBackup(raw); if (raw == null) { toast('Das ist keine TeachersBook-Sicherung, sondern ein normales PDF'); return null; } }
+  try { j = JSON.parse(raw); if (!j || j.app !== 'klassenbuch') throw 0; } catch { toast('Das ist keine gültige TeachersBook-Datei'); return null; }
   let inc = j.data;
   if (j.enc) {
     const pw = await secretSheet({ title, text: 'Diese Datei ist verschlüsselt. Gib das Sicherungspasswort des Geräts ein, auf dem sie erstellt wurde.', ok: 'Öffnen' });
@@ -1825,6 +1827,7 @@ function viewPlan() {
 /* ---------- Was ist neu? (einmal nach einem Update) ---------- */
 // Versionszählung neu ab 0.1 (Pilotphase, 1.0 = offizieller Start). Ältere Neuerungen (alte Zählung 5.x) stehen in NEWS_OLD.
 const NEWS = [
+  ['0.3', ['Sicherungen sind jetzt PDF-Dateien (mit Deckblatt, Daten verschlüsselt darin). So bietet das iPhone im Teilen-Menü OneDrive direkt an. Ältere Sicherungen funktionieren weiter.']],
   ['0.2', ['Sicherungen lassen sich am iPhone direkt an OneDrive teilen. Neue Endung „.teachersbook“ – ältere „.json“-Sicherungen funktionieren weiter.']],
   ['0.1', ['KeimBook heißt jetzt TeachersBook – mit neuem Symbol. Deine Daten, Lizenz und die Adresse bleiben gleich.', 'Neue Versionszählung: 0.x während der Pilotphase, 1.0 beim offiziellen Start.']]
 ];
@@ -1898,7 +1901,7 @@ const HELP = [
   ['Daten und Sicherheit', [
     ['Wo sind meine Daten gespeichert?', 'Nur <b>auf diesem Gerät</b>, im Speicher der App. Es gibt keine Cloud und kein Konto – deshalb ist die <b>Sicherung</b> so wichtig.'],
     ['Wie sichere ich meine Daten?', '<b>Zahnrad → „Sicherung exportieren“</b>. Die Datei ist mit deinem Sicherungspasswort verschlüsselt. Die App erinnert dich zweimal pro Woche.'],
-    ['Wie sichere ich in OneDrive?', 'Zahnrad → <b>„Sicherung exportieren“</b> → im Teilen-Menü <b>OneDrive</b> antippen → Ordner wählen → hochladen. Fehlt OneDrive dort: im Teilen-Menü ganz rechts auf <b>„Mehr“</b> tippen und OneDrive einschalten. <b>Zurückholen:</b> Zahnrad → „Sicherung importieren“ → <b>Durchsuchen → OneDrive</b> → Datei antippen (sie lädt kurz herunter). Sicherungen enden auf <b>„.teachersbook“</b>, ältere auf „.json“ – beide funktionieren.'],
+    ['Wie sichere ich in OneDrive?', 'Zahnrad → <b>„Sicherung exportieren“</b> → im Teilen-Menü <b>OneDrive</b> antippen → Ordner wählen → hochladen. Fehlt OneDrive dort: im Teilen-Menü ganz rechts auf <b>„Mehr“</b> tippen und OneDrive einschalten. <b>Zurückholen:</b> Zahnrad → „Sicherung importieren“ → <b>Durchsuchen → OneDrive</b> → Datei antippen (sie lädt kurz herunter). Sicherungen sind <b>PDF-Dateien</b> mit einem Deckblatt – die Daten stecken verschlüsselt darin. Ältere Sicherungen („.json“, „.teachersbook“) funktionieren weiter.'],
     ['Wie nehme ich meine Daten auf ein neues Gerät mit?', 'Am alten Gerät eine Sicherung exportieren (z. B. in iCloud Drive). Am neuen Gerät TeachersBook installieren und freischalten → <b>Zahnrad → „Sicherung importieren“</b> → Sicherungspasswort → <b>„Alles ersetzen“</b>.'],
     ['Ich habe meinen PIN vergessen.', 'Ohne PIN lassen sich die Daten nicht öffnen – das ist der Schutz. Über <b>„PIN vergessen?“</b> wird alles gelöscht; danach importierst du deine letzte Sicherung.'],
     ['Ich habe mein Sicherungspasswort vergessen.', 'Ältere Sicherungen lassen sich dann nicht mehr öffnen. Deine Daten in der App sind nicht betroffen: Lege unter Zahnrad <b>„Passwort ändern“</b> ein neues fest und exportiere sofort eine neue Sicherung.'],
@@ -2009,11 +2012,33 @@ function viewSettings() {
     <p class="fine center">TeachersBook · Version ${APP_VERSION}</p>`;
 }
 
-// Sicherungsdateien: eigene Endung und „allgemeiner“ Dateityp – so bietet das iPhone im Teilen-Menü auch Apps wie OneDrive an.
-// Erkannt wird eine Sicherung am Inhalt (beginnt mit „{“); alte „.json“-Sicherungen funktionieren weiter.
-const BACKUP_EXT = '.teachersbook';
-const BACKUP_MIME = 'application/octet-stream';
-const looksLikeBackup = (firstByte, name) => firstByte === 0x7B || /\.(json|teachersbook)$/i.test(String(name || ''));
+// Sicherungen sind PDF-Dateien: ein Deckblatt plus die verschlüsselten Daten als eingebettete Datei.
+// Grund: Die OneDrive-App bietet sich im iPhone-Teilen-Menü nur für bestimmte Dateiarten an – PDF gehört dazu, JSON nicht.
+// Alte Sicherungen („.json“, „.teachersbook“, beginnen mit „{“) funktionieren weiter.
+const BACKUP_EXT = '.pdf';
+const BACKUP_MIME = 'application/pdf';
+const looksLikeBackup = (firstByte, name) => firstByte === 0x7B || firstByte === 0x25 || /\.(json|teachersbook|pdf)$/i.test(String(name || ''));
+// Verschlüsselte Sicherungsdaten aus einer PDF-Sicherung holen (null = keine TeachersBook-Sicherung)
+function extractBackup(pdfText) {
+  const m = pdfText.indexOf('/TBBackup true'); if (m < 0) return null;
+  const a = pdfText.indexOf('stream\n', m), b = pdfText.indexOf('\nendstream', a);
+  return a < 0 || b < 0 ? null : pdfText.slice(a + 7, b);
+}
+function backupPDF(json, extra = {}) {
+  const k = pdfKit(), { M, COL } = k, when = new Date();
+  const kind = extra.abgleich ? 'ABGLEICH-DATEI' : 'SICHERUNG';
+  let y = M;
+  k.text(M, y + 8, kind, { size: 8, bold: true, color: COL.acc }); y += 34;
+  k.text(M, y, extra.abgleich ? 'TeachersBook-Abgleich' : 'TeachersBook-Sicherung', { size: 22, bold: true }); y += 20;
+  k.text(M, y, `Erstellt am ${when.toLocaleDateString('de-AT')} um ${hm(when)} Uhr`, { size: 10, color: COL.ink2 }); y += 34;
+  ['Diese Datei enthält alle Daten von TeachersBook – verschlüsselt mit deinem Sicherungspasswort.',
+   'Ohne das Passwort ist der Inhalt nicht lesbar. Auf dieser Seite stehen keine Schülerdaten.', '',
+   'Wiederherstellen: TeachersBook öffnen, Zahnrad, „Sicherung importieren“, diese Datei wählen.',
+   extra.abgleich ? 'Abgleich: Zahnrad, „Mit anderem Gerät abgleichen“, „Abgleich-Datei einlesen“.' : '',
+   '', 'Bitte diese Datei nicht bearbeiten oder neu speichern – sonst lässt sie sich nicht mehr importieren.']
+    .forEach(l => { if (l) k.text(M, y, l, { size: 10, color: COL.ink }); y += 16; });
+  return k.build(extra.abgleich ? 'TeachersBook-Abgleich' : 'TeachersBook-Sicherung', 'TeachersBook · Sicherung', { name: 'teachersbook-sicherung.json', data: json });
+}
 // Verschlüsselte Sicherung aller Daten in eine Datei. true = gespeichert bzw. geteilt.
 async function writeBackup(name, extra = {}) {
   await flushTrack();
@@ -2027,7 +2052,7 @@ async function writeBackup(name, extra = {}) {
   const box = await Crypt.seal(key, TE.encode(JSON.stringify(data)));
   const out = { app: 'klassenbuch', format: 2, exportiert: new Date().toISOString(), ...extra,
     enc: { alg: 'AES-256-GCM', kdf: 'PBKDF2-SHA-256', iter: k.iter, salt: toB64(k.salt), iv: toB64(box.iv), ct: toB64(box.ct) } };
-  if (!await saveFile(name, BACKUP_MIME, JSON.stringify(out))) return false;
+  if (!await saveFile(name, BACKUP_MIME, backupPDF(JSON.stringify(out), extra))) return false;
   backup.last = Date.now(); backup.snooze = 0;
   await DB.set('backup', backup).catch(() => { });
   if (location.hash.startsWith('#/einstellungen')) render();
@@ -2479,7 +2504,7 @@ function pdfKit() {
       return lines;
     },
     page() { pages.push(ops.join('\n')); ops = []; },
-    build(title, footerLeft) {
+    build(title, footerLeft, attach) {
       if (ops.length) k.page();
       pages.forEach((pg, i) => { ops = []; k.text(M, H - 22, footerLeft, { size: 7.5, color: COL.ink3 }); k.text(W - M, H - 22, `Seite ${i + 1} von ${pages.length}`, { size: 7.5, color: COL.ink3, align: 'right' }); pages[i] = pg + '\n' + ops.join('\n'); });
       const objs = [], add = s2 => { objs.push(s2); return objs.length; };
@@ -2490,7 +2515,14 @@ function pdfKit() {
         const cs = add(`<< /Length ${content.length} >>\nstream\n${content}\nendstream`);
         return add(`<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${W} ${H}] /Resources << /Font << /F1 ${f1} 0 R /F2 ${f2} 0 R >> >> /Contents ${cs} 0 R >>`);
       });
-      objs[catalog - 1] = `<< /Type /Catalog /Pages ${pagesId} 0 R >>`;
+      // Anhang (z. B. die verschlüsselte Sicherung) als eingebettete Datei – das PDF bleibt gültig und ansehbar
+      let names = '';
+      if (attach) {
+        const ef = add(`<< /Type /EmbeddedFile /TBBackup true /Length ${attach.data.length} >>\nstream\n${attach.data}\nendstream`);
+        const spec = add(`<< /Type /Filespec /F ${pdfStr(attach.name)} /UF ${pdfStr(attach.name)} /EF << /F ${ef} 0 R >> >>`);
+        names = ` /Names << /EmbeddedFiles << /Names [${pdfStr(attach.name)} ${spec} 0 R] >> >>`;
+      }
+      objs[catalog - 1] = `<< /Type /Catalog /Pages ${pagesId} 0 R${names} >>`;
       objs[pagesId - 1] = `<< /Type /Pages /Kids [${kids.map(id => id + ' 0 R').join(' ')}] /Count ${kids.length} >>`;
       const info = add(`<< /Title ${pdfStr(title)} /Producer (TeachersBook) >>`);
       let out = '%PDF-1.4\n%\xE2\xE3\xCF\xD3\n';
