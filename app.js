@@ -8,7 +8,7 @@ const PUBLIC_KEY = {
   x: 'kHkzCWyGjuxGxGf_3AMH2F_MKEWEjH1hfCnBf7K1Imo',
   y: 'Fv556fMFzralLJTUqYxNxI68b9Fd4ctkLzgn07BzKj0'
 };
-const APP_VERSION = '5.10';
+const APP_VERSION = '5.11';
 
 const TYPES = {
   ma: { label: 'Mitarbeit', long: 'Mitarbeit', icon: 'spark', vals: [['+', '+', 'g'], ['~', '~', 'm'], ['-', '−', 'b']] },
@@ -1816,6 +1816,7 @@ function viewPlan() {
 
 /* ---------- Was ist neu? (einmal nach einem Update) ---------- */
 const NEWS = [
+  ['5.11', ['Ruhigere Auswahlmenüs: kein grüner Rahmen mehr um die erste Zeile.']],
   ['5.10', ['„Auf andere Klassen übernehmen“ (Bewertung & Gewichtung): Du wählst, was übernommen wird. Eigene Kategorien und Einträge der anderen Klassen bleiben erhalten.']],
   ['5.9', ['Eigene Kategorien zählen zur Gesamtnote – auch Messwerte wie Weitsprung oder 60-m-Lauf über einen eigenen Notenschlüssel (Bewertung & Gewichtung).']],
   ['5.8', ['Schülerliste mit mehreren Klassen (z. B. 7a, 7b, 7c) als eine Gruppe mit eigenem Namen importieren – z. B. „Biologie Labor“.', 'Stundenplan mit A- und B-Wochen.', 'Rückmeldung senden – in der Hilfe.']],
@@ -2204,6 +2205,8 @@ function modal(o) {
     d.showModal();
     d.scrollTop = 0;
     const f = d.querySelector('[name=v]');
+    // Nicht die erste Auswahl-Zeile anwählen (sonst zeichnet Safari dort einen Fokus-Rahmen) – das Blatt selbst bekommt den Fokus
+    d.tabIndex = -1; d.focus({ preventScroll: true });
     if (f) setTimeout(() => f.focus(), 80);
   });
 }
