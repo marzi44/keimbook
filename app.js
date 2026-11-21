@@ -8,7 +8,7 @@ const PUBLIC_KEY = {
   x: 'kHkzCWyGjuxGxGf_3AMH2F_MKEWEjH1hfCnBf7K1Imo',
   y: 'Fv556fMFzralLJTUqYxNxI68b9Fd4ctkLzgn07BzKj0'
 };
-const APP_VERSION = '0.1';
+const APP_VERSION = '0.2';
 
 const TYPES = {
   ma: { label: 'Mitarbeit', long: 'Mitarbeit', icon: 'spark', vals: [['+', '+', 'g'], ['~', '~', 'm'], ['-', '−', 'b']] },
@@ -1825,6 +1825,7 @@ function viewPlan() {
 /* ---------- Was ist neu? (einmal nach einem Update) ---------- */
 // Versionszählung neu ab 0.1 (Pilotphase, 1.0 = offizieller Start). Ältere Neuerungen (alte Zählung 5.x) stehen in NEWS_OLD.
 const NEWS = [
+  ['0.2', ['Sicherungen lassen sich am iPhone direkt an OneDrive teilen. Neue Endung „.teachersbook“ – ältere „.json“-Sicherungen funktionieren weiter.']],
   ['0.1', ['KeimBook heißt jetzt TeachersBook – mit neuem Symbol. Deine Daten, Lizenz und die Adresse bleiben gleich.', 'Neue Versionszählung: 0.x während der Pilotphase, 1.0 beim offiziellen Start.']]
 ];
 const NEWS_OLD = [
@@ -1897,6 +1898,7 @@ const HELP = [
   ['Daten und Sicherheit', [
     ['Wo sind meine Daten gespeichert?', 'Nur <b>auf diesem Gerät</b>, im Speicher der App. Es gibt keine Cloud und kein Konto – deshalb ist die <b>Sicherung</b> so wichtig.'],
     ['Wie sichere ich meine Daten?', '<b>Zahnrad → „Sicherung exportieren“</b>. Die Datei ist mit deinem Sicherungspasswort verschlüsselt. Die App erinnert dich zweimal pro Woche.'],
+    ['Wie sichere ich in OneDrive?', 'Zahnrad → <b>„Sicherung exportieren“</b> → im Teilen-Menü <b>OneDrive</b> antippen → Ordner wählen → hochladen. Fehlt OneDrive dort: im Teilen-Menü ganz rechts auf <b>„Mehr“</b> tippen und OneDrive einschalten. <b>Zurückholen:</b> Zahnrad → „Sicherung importieren“ → <b>Durchsuchen → OneDrive</b> → Datei antippen (sie lädt kurz herunter). Sicherungen enden auf <b>„.teachersbook“</b>, ältere auf „.json“ – beide funktionieren.'],
     ['Wie nehme ich meine Daten auf ein neues Gerät mit?', 'Am alten Gerät eine Sicherung exportieren (z. B. in iCloud Drive). Am neuen Gerät TeachersBook installieren und freischalten → <b>Zahnrad → „Sicherung importieren“</b> → Sicherungspasswort → <b>„Alles ersetzen“</b>.'],
     ['Ich habe meinen PIN vergessen.', 'Ohne PIN lassen sich die Daten nicht öffnen – das ist der Schutz. Über <b>„PIN vergessen?“</b> wird alles gelöscht; danach importierst du deine letzte Sicherung.'],
     ['Ich habe mein Sicherungspasswort vergessen.', 'Ältere Sicherungen lassen sich dann nicht mehr öffnen. Deine Daten in der App sind nicht betroffen: Lege unter Zahnrad <b>„Passwort ändern“</b> ein neues fest und exportiere sofort eine neue Sicherung.'],
@@ -1920,8 +1922,8 @@ const HELP_KW = {
   'notiere ich': 'eltern sprechtag gespräch notiz', 'Wie entsteht die Gesamtnote': 'durchschnitt schnitt gewichtung prozent rechnen',
   'Notenvorschlag': 'knapp vorschlag', 'Zeugnisnote fest': 'zeugnis schulnachricht jahreszeugnis konferenz semesternote', 'Schularbeit mit Punkten': 'test punkte notenschlüssel notenspiegel prüfung', 'eigene Kategorien': 'messwert weitsprung sport zeit gewichtung anteil notenschlüssel eigene burschen mädchen getrennt wertungsgruppe gruppe', 'eigener Skala': 'punkte notengrenzen skala', 'Sem.': 'semester halbjahr', 'rote': 'gefährdet frühwarnung nicht genügend',
   'PDF für ein Elterngespräch': 'drucken sprechtag', 'Notenkonferenz': 'konferenz zeugnis excel', 'Datei am iPhone': 'dateien icloud speichern teilen',
-  'gespeichert?': 'cloud server datenschutz', 'sichere ich': 'backup export', 'neues Gerät': 'handy handywechsel tablet ipad übertragen umzug backup',
-  'PIN vergessen': 'code gesperrt sperre', 'Handy und iPad': 'abgleich synchronisieren sync zwei geräte tablet airdrop', 'Sicherungspasswort vergessen': 'backup passwort', 'Safari': 'cache verlauf speicher löschen',
+  'gespeichert?': 'cloud server datenschutz', 'sichere ich meine Daten': 'backup export', 'neues Gerät': 'handy handywechsel tablet ipad übertragen umzug backup',
+  'PIN vergessen': 'code gesperrt sperre', 'OneDrive?': 'onedrive cloud microsoft hochladen teilen sicherung',  'Handy und iPad': 'abgleich synchronisieren sync zwei geräte tablet airdrop', 'Sicherungspasswort vergessen': 'backup passwort', 'Safari': 'cache verlauf speicher löschen',
   'neue Schuljahr': 'september jahreswechsel aufsteigen archiv', 'Aufbewahrungsfrist': 'löschfrist löschen dsgvo archiv',
   'alte Version': 'update aktualisieren neu', 'Lizenz': 'code freischalten abgelaufen', 'weiteren Fragen': 'support kontakt handbuch'
 };
@@ -2007,6 +2009,11 @@ function viewSettings() {
     <p class="fine center">TeachersBook · Version ${APP_VERSION}</p>`;
 }
 
+// Sicherungsdateien: eigene Endung und „allgemeiner“ Dateityp – so bietet das iPhone im Teilen-Menü auch Apps wie OneDrive an.
+// Erkannt wird eine Sicherung am Inhalt (beginnt mit „{“); alte „.json“-Sicherungen funktionieren weiter.
+const BACKUP_EXT = '.teachersbook';
+const BACKUP_MIME = 'application/octet-stream';
+const looksLikeBackup = (firstByte, name) => firstByte === 0x7B || /\.(json|teachersbook)$/i.test(String(name || ''));
 // Verschlüsselte Sicherung aller Daten in eine Datei. true = gespeichert bzw. geteilt.
 async function writeBackup(name, extra = {}) {
   await flushTrack();
@@ -2020,7 +2027,7 @@ async function writeBackup(name, extra = {}) {
   const box = await Crypt.seal(key, TE.encode(JSON.stringify(data)));
   const out = { app: 'klassenbuch', format: 2, exportiert: new Date().toISOString(), ...extra,
     enc: { alg: 'AES-256-GCM', kdf: 'PBKDF2-SHA-256', iter: k.iter, salt: toB64(k.salt), iv: toB64(box.iv), ct: toB64(box.ct) } };
-  if (!await saveFile(name, 'application/json', JSON.stringify(out))) return false;
+  if (!await saveFile(name, BACKUP_MIME, JSON.stringify(out))) return false;
   backup.last = Date.now(); backup.snooze = 0;
   await DB.set('backup', backup).catch(() => { });
   if (location.hash.startsWith('#/einstellungen')) render();
@@ -2099,10 +2106,10 @@ async function yearWizard() {
       <li><b>Alte Daten löschen</b> – ${esc(plural(o.entries, 'Eintrag', 'Einträge'))}${o.talks ? `, ${esc(plural(o.talks, 'Gespräch bzw. Frühwarnung', 'Gespräche bzw. Frühwarnungen'))}` : ''}${o.days ? ` und ${esc(plural(o.days, 'Stundenthema', 'Stundenthemen'))}` : ''} vor dem 1. September werden vom Gerät entfernt.</li></ol>`
   })) return;
   // 2 · Archiv
-  const arch = await modal({ title: 'Archiv sichern', text: `Die Datei „TeachersBook-Archiv_${fileLabel}.json“ ist mit deinem Sicherungspasswort verschlüsselt. Aufbewahrungsfrist: ${plural(retainYears(), 'Jahr', 'Jahre')} nach Schuljahresende – danach erinnert dich die App ans Löschen.`, ok: 'Archiv sichern' });
+  const arch = await modal({ title: 'Archiv sichern', text: `Die Datei „TeachersBook-Archiv_${fileLabel}${BACKUP_EXT}“ ist mit deinem Sicherungspasswort verschlüsselt. Aufbewahrungsfrist: ${plural(retainYears(), 'Jahr', 'Jahre')} nach Schuljahresende – danach erinnert dich die App ans Löschen.`, ok: 'Archiv sichern' });
   if (!arch) return;
-  if (!await writeBackup(`TeachersBook-Archiv_${fileLabel}.json`)) return toast('Abgebrochen – ohne Archiv wird nichts gelöscht');
-  noteArchive(`TeachersBook-Archiv_${fileLabel}.json`, o.first, o.last); await save();
+  if (!await writeBackup(`TeachersBook-Archiv_${fileLabel}${BACKUP_EXT}`)) return toast('Abgebrochen – ohne Archiv wird nichts gelöscht');
+  noteArchive(`TeachersBook-Archiv_${fileLabel}${BACKUP_EXT}`, o.first, o.last); await save();
   // 3 · Klassen
   const cls = [...data.classes].sort(byName);
   const plan = cls.length ? await modal({
@@ -3328,7 +3335,7 @@ const actions = {
     let rows;
     try {
       const head = new Uint8Array(await f.slice(0, 4).arrayBuffer());
-      if (head[0] === 0x7B || /\.json$/i.test(f.name)) return actions.importBackup(f);
+      if (looksLikeBackup(head[0], f.name)) return actions.importBackup(f);
       rows = await readTable(f);
     } catch (e) { return toast(errMsg(e)); }
     const p = parseStudents(rows);
@@ -3798,7 +3805,7 @@ const actions = {
         e.w ? fmtW(e.w) : '1', kindOf(c, e.t) === 'text' ? '' : noteFull(c, e)]));
     saveFile(`Einträge_${safeName(c.name)}_${periodFile()}.csv`, 'text/csv', toCSV(rows));
   },
-  async exportBackup() { await writeBackup(`TeachersBook-Sicherung_${today()}.json`); },
+  async exportBackup() { await writeBackup(`TeachersBook-Sicherung_${today()}${BACKUP_EXT}`); },
   async syncMenu() {
     const k = await modal({ title: 'Zwei Geräte abgleichen', text: 'Z. B. Handy und iPad – ohne Cloud. Ein Gerät erstellt eine verschlüsselte Abgleich-Datei, das andere liest sie ein. Neuere Einträge gewinnen, Gelöschtes wird auch am anderen Gerät gelöscht. Tipp: auf beiden Geräten dasselbe Sicherungspasswort verwenden.',
       options: [['out', 'Abgleich-Datei erstellen (Schritt 1)'], ['in', 'Abgleich-Datei einlesen (Schritt 2)']], cancel: 'Schließen' });
@@ -3806,7 +3813,7 @@ const actions = {
     if (k === 'in') return actions.syncIn();
   },
   async syncOut() {
-    if (await writeBackup(`TeachersBook-Abgleich_${today()}_${hm(new Date()).replace(':', '')}.json`, { abgleich: true }))
+    if (await writeBackup(`TeachersBook-Abgleich_${today()}_${hm(new Date()).replace(':', '')}${BACKUP_EXT}`, { abgleich: true }))
       modal({ title: 'Abgleich-Datei erstellt', text: 'Bring die Datei aufs andere Gerät (AirDrop, iCloud Drive, Mail an dich selbst …) und lies sie dort ein: Zahnrad → „Mit anderem Gerät abgleichen“ → „Abgleich-Datei einlesen“.', ok: 'Verstanden', cancel: 'Schließen' });
   },
   async syncIn() {
@@ -3838,7 +3845,7 @@ const actions = {
     const f = arg instanceof File ? arg : await pickFile(); if (!f) return;
     // Keine Sicherung, sondern z. B. eine Schülerliste? Dann als Liste importieren.
     const head = new Uint8Array(await f.slice(0, 4).arrayBuffer());
-    if (head[0] !== 0x7B && !/\.json$/i.test(f.name)) return actions.importAny(f);
+    if (!looksLikeBackup(head[0], f.name)) return actions.importAny(f);
     const rb = await readBackupFile(f); if (!rb) return;
     const inc = rb.inc;
     const k = await modal({
