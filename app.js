@@ -8,7 +8,7 @@ const PUBLIC_KEY = {
   x: 'kHkzCWyGjuxGxGf_3AMH2F_MKEWEjH1hfCnBf7K1Imo',
   y: 'Fv556fMFzralLJTUqYxNxI68b9Fd4ctkLzgn07BzKj0'
 };
-const APP_VERSION = '5.11';
+const APP_VERSION = '5.12';
 
 const TYPES = {
   ma: { label: 'Mitarbeit', long: 'Mitarbeit', icon: 'spark', vals: [['+', '+', 'g'], ['~', '~', 'm'], ['-', '−', 'b']] },
@@ -107,10 +107,14 @@ const weighable = (c, k) => ['note', 'hu', 'num'].includes(kindOf(c, k));
 // Notenschlüssel für Messwerte: cfg.numkey[k] = { t: [Grenze für 1, 2, 3, 4], m: 'best' | 'avg' }
 // Höher ist besser: 1 ab t[0] … ; niedriger ist besser (z. B. Zeit): 1 bis t[0] …
 const numKey = (c, k) => (cfg(c).numkey || {})[k] || null;
-function numGrade(c, k, v) {
+// Wertungsgruppen (z. B. Burschen / Mädchen): je Messwert ein zweiter Schlüssel t2; Kinder mit s.wg = 1 gehören zur 2. Gruppe
+const wgNames = c => (cfg(c).wg && cfg(c).wg.names) || ['Gruppe 1', 'Gruppe 2'];
+const wgOf = (c, sid) => { const s = sid && c.students.find(x => x.id === sid); return s && s.wg === 1 ? 1 : 0; };
+const wgUsed = c => Object.values(cfg(c).numkey || {}).some(x => x.t2);
+function numGrade(c, k, v, sid) {
   const nk = numKey(c, k); if (!nk || v == null || isNaN(v)) return null;
-  const hi = typeOf(c, k).high;
-  for (let i = 0; i < 4; i++) if (hi ? v >= nk.t[i] - 1e-9 : v <= nk.t[i] + 1e-9) return i + 1;
+  const hi = typeOf(c, k).high, t = nk.t2 && wgOf(c, sid) === 1 ? nk.t2 : nk.t;
+  for (let i = 0; i < 4; i++) if (hi ? v >= t[i] - 1e-9 : v <= t[i] + 1e-9) return i + 1;
   return 5;
 }
 const shortOf = (c, k) => (c && cfg(c).cats.labels[k]) || SHORT[k] || (typeOf(c, k) || { label: k }).label;
@@ -825,7 +829,7 @@ function stats(c, sid) {
       if (isNaN(v)) continue;
       x.n++; x.last = v; x.lastD = e.d;
       if (x.best == null || (hi ? v > x.best : v < x.best)) x.best = v;
-      const g = numGrade(c, e.t, v);
+      const g = numGrade(c, e.t, v, sid);
       if (g != null && (numKey(c, e.t).m === 'avg')) { acc[e.t].s += g; acc[e.t].w += 1; }
       continue;
     }
@@ -847,7 +851,7 @@ function stats(c, sid) {
   let S = 0, W = 0;
   for (const k of catKeys(c)) {
     st.avg[k] = acc[k].w ? acc[k].s / acc[k].w : null;
-    if (kindOf(c, k) === 'num' && numKey(c, k) && numKey(c, k).m !== 'avg') st.avg[k] = numGrade(c, k, st.nums[k].best);
+    if (kindOf(c, k) === 'num' && numKey(c, k) && numKey(c, k).m !== 'avg') st.avg[k] = numGrade(c, k, st.nums[k].best, sid);
     if (vis.includes(k) && weighable(c, k) && (wt[k] || 0) > 0 && st.avg[k] != null) { S += wt[k] * st.avg[k]; W += wt[k]; }
   }
   st.total = W ? S / W : null;
@@ -1095,6 +1099,10 @@ function viewRating(c) {
       <div class="sub">Notenskala und Anteil an der Gesamtnote je Kategorie.</div></div>
     <div class="card">${rows || '<div class="nothing">Keine benotbare Kategorie sichtbar</div>'}</div>
     <p class="fine">${sumLine} · Kategorie antippen ändert die Notenskala (1–5, + ~ −, Prozent oder eigene). Je Kategorie wird ein Schnitt gebildet und mit ihrem Anteil gewichtet – 0 % zählt nicht. Eigene Kategorien zählen genauso: Noten-Kategorien direkt, <b>Messwerte</b> (z. B. Weitsprung) über einen Notenschlüssel. Notizen werden nicht benotet.</p>
+    ${wgUsed(c) ? (N => `<div class="section">Wertungsgruppen</div>
+      <div class="card"><div class="lrow static wgnames"><input class="dateinp" data-ch="wgName" data-i="0" value="${esc(N[0])}" aria-label="Name der 1. Gruppe" autocomplete="off"><input class="dateinp" data-ch="wgName" data-i="1" value="${esc(N[1])}" aria-label="Name der 2. Gruppe" autocomplete="off"></div>
+      ${[...c.students].sort(byName).map(s => `<div class="lrow static"><span class="grow">${esc(s.name)}${fromTag(s)}</span><div class="mini-seg compact wgseg"><button class="${s.wg === 1 ? '' : 'on'}" data-a="wgSet" data-s="${s.id}" data-v="0" aria-pressed="${s.wg !== 1}">${esc(N[0])}</button><button class="${s.wg === 1 ? 'on' : ''}" data-a="wgSet" data-s="${s.id}" data-v="1" aria-pressed="${s.wg === 1}">${esc(N[1])}</button></div></div>`).join('')}</div>
+      <p class="fine">Für Messwerte mit getrenntem Notenschlüssel: Welche Grenzen gelten für wen? Die Namen oben kannst du ändern, z. B. „Burschen“ und „Mädchen“ oder „Unterstufe“ und „Oberstufe“.</p>`)(wgNames(c)) : ''}
     ${data.classes.length > 1 ? `<button class="btn secondary block mt" data-a="cfgAll">Auf andere Klassen übernehmen</button>` : ''}`;
 }
 
@@ -1218,7 +1226,7 @@ function copyCfg(src, dst, what) {
     }
     if (what.numkey && S.numkey && S.numkey[sk] && kindOf(dst, dk) === 'num') {
       if (typeOf(dst, dk).high !== typeOf(src, sk).high || (typeOf(dst, dk).unit || '') !== (typeOf(src, sk).unit || '')) notes.push(`${dst.name} · ${typeOf(dst, dk).label}: andere Einheit oder Richtung`);
-      else D.numkey = Object.assign({}, D.numkey, { [dk]: clone(S.numkey[sk]) });
+      else { D.numkey = Object.assign({}, D.numkey, { [dk]: clone(S.numkey[sk]) }); if (S.numkey[sk].t2 && S.wg && !D.wg) D.wg = clone(S.wg); }
     }
   }
   return notes;
@@ -1302,7 +1310,7 @@ function viewStudent(c, sid) {
       const x = st.nums[k];
       val = x.best == null ? '–' : esc(withUnit(x.best, t.unit));
       sub = x.n ? `${t.high ? 'Bestwert' : 'Bestzeit'} · zuletzt ${withUnit(x.last, t.unit)} · ${plural(x.n, 'Messung', 'Messungen')}` : 'noch keine';
-      if (a != null) { val += ` <span class="${gradeCls(a)}">→ ${fmtNum(a)}</span>`; sub = `Note ${numKey(c, k).m === 'avg' ? 'Ø aller Messungen' : `nach ${t.high ? 'Bestwert' : 'Bestzeit'}`} · zuletzt ${withUnit(x.last, t.unit)} · ${plural(x.n, 'Messung', 'Messungen')}`; }
+      if (a != null) { val += ` <span class="${gradeCls(a)}">→ ${fmtNum(a)}</span>`; sub = `Note ${numKey(c, k).m === 'avg' ? 'Ø aller Messungen' : `nach ${t.high ? 'Bestwert' : 'Bestzeit'}`}${numKey(c, k).t2 ? ` (${wgNames(c)[wgOf(c, sid)]})` : ''} · zuletzt ${withUnit(x.last, t.unit)} · ${plural(x.n, 'Messung', 'Messungen')}`; }
     } else if (kind === 'text') {
       const x = st.texts[k];
       val = x.n ? x.n + '×' : '–';
@@ -1816,6 +1824,7 @@ function viewPlan() {
 
 /* ---------- Was ist neu? (einmal nach einem Update) ---------- */
 const NEWS = [
+  ['5.12', ['Sport: getrennte Notenschlüssel für Messwerte, z. B. für Burschen und Mädchen – unter Bewertung & Gewichtung → Messwert antippen → „Getrennt nach Gruppe“.']],
   ['5.11', ['Ruhigere Auswahlmenüs: kein grüner Rahmen mehr um die erste Zeile.']],
   ['5.10', ['„Auf andere Klassen übernehmen“ (Bewertung & Gewichtung): Du wählst, was übernommen wird. Eigene Kategorien und Einträge der anderen Klassen bleiben erhalten.']],
   ['5.9', ['Eigene Kategorien zählen zur Gesamtnote – auch Messwerte wie Weitsprung oder 60-m-Lauf über einen eigenen Notenschlüssel (Bewertung & Gewichtung).']],
@@ -1872,7 +1881,7 @@ const HELP = [
     ['Wie entsteht die Gesamtnote?', 'Jede Kategorie wird für sich gemittelt und dann nach deiner <b>Gewichtung</b> zusammengerechnet (Klasse → <b>••• → „Bewertung & Gewichtung“</b>). Kategorien mit 0 % zählen nicht. Bei Mitarbeit gilt + = 1, ~ = 3, − = 5.'],
     ['Was bedeutet „2–3“ beim Notenvorschlag?', 'Der Schnitt liegt genau zwischen zwei Noten (z. B. 2,5). Dann entscheidest du – die App schlägt bewusst nichts vor.'],
     ['Wie trage ich eine Schularbeit mit Punkten ein?', 'Klasse → Kategorie <b>Schriftlich</b> → <b>„Schularbeit mit Punkten“</b> (oder <b>••• → „Schularbeiten & Tests“</b>) → <b>„Neue Schularbeit / Test“</b> → Höchstpunkte eingeben. Dann je Kind die Punkte eintippen – die Note rechnet die App mit dem <b>Notenschlüssel</b> aus (änderbar), der <b>Notenspiegel</b> entsteht automatisch. Die Noten zählen ganz normal zur Gesamtnote.'],
-    ['Zählen eigene Kategorien zur Gesamtnote?', 'Ja. Klasse → <b>••• → „Bewertung & Gewichtung“</b> → beim Anteil auf <b>+</b> tippen. Eigene <b>Noten-Kategorien</b> zählen sofort. Bei <b>Messwerten</b> (z. B. Weitsprung, 60-m-Lauf) zuerst die Kategorie antippen und den <b>Notenschlüssel</b> festlegen – z. B. 1 ab 4,20 m – und wählen, ob der beste Wert oder der Schnitt aller Messungen zählt. Notizen werden nicht benotet.'],
+    ['Zählen eigene Kategorien zur Gesamtnote?', 'Ja. Klasse → <b>••• → „Bewertung & Gewichtung“</b> → beim Anteil auf <b>+</b> tippen. Eigene <b>Noten-Kategorien</b> zählen sofort. Bei <b>Messwerten</b> (z. B. Weitsprung, 60-m-Lauf) zuerst die Kategorie antippen und den <b>Notenschlüssel</b> festlegen – z. B. 1 ab 4,20 m – und wählen, ob der beste Wert oder der Schnitt aller Messungen zählt. Für Sport mit unterschiedlichen Grenzen (z. B. Burschen und Mädchen): im Notenschlüssel <b>„Getrennt nach Gruppe“</b> wählen und unter <b>„Wertungsgruppen“</b> jedes Kind zuordnen. Notizen werden nicht benotet.'],
     ['Kann ich in Prozent oder mit eigener Skala bewerten?', 'Ja, je Kategorie unter <b>„Bewertung & Gewichtung“</b>: 1–5, + ~ −, <b>Prozent</b> mit eigenen Notengrenzen oder eine <b>eigene Skala</b>.'],
     ['Wo halte ich die Zeugnisnote fest?', 'Reiter <b>Übersicht</b> → <b>„Zeugnisnoten“</b> → 1. Semester oder Jahreszeugnis wählen → je Kind die Note antippen, die du ins Zeugnis schreibst („nb“ = nicht beurteilt). <b>„Vorschläge übernehmen“</b> trägt alle eindeutigen Vorschläge auf einmal ein. Die Liste kannst du als PDF oder Excel exportieren.'],
     ['Was zeigen „1. Sem.“, „2. Sem.“ und „Jahr“?', 'Den Zeitraum für Noten, Übersicht und Exporte. Wann das 2. Semester beginnt, stellst du unter <b>Zahnrad → Schuljahr</b> ein.'],
@@ -1905,7 +1914,7 @@ const HELP_KW = {
   '„P“': 'passiv keine leistung', 'nicht benoten': 'abwesend krank fehlt', 'anderen Tag': 'nachtragen datum gestern vergangen',
   'schneller': 'alle suche suchen', 'Sitzplan': 'plätze sitzordnung', 'Stundenplan': 'stunden zeiten uhrzeit automatisch öffnen aktuelle klasse doppelstunde a-woche b-woche ab wechselnde wochen', 'Wer kommt dran': 'zufall zufällig prüfen wiederholung',
   'notiere ich': 'eltern sprechtag gespräch notiz', 'Wie entsteht die Gesamtnote': 'durchschnitt schnitt gewichtung prozent rechnen',
-  'Notenvorschlag': 'knapp vorschlag', 'Zeugnisnote fest': 'zeugnis schulnachricht jahreszeugnis konferenz semesternote', 'Schularbeit mit Punkten': 'test punkte notenschlüssel notenspiegel prüfung', 'eigene Kategorien': 'messwert weitsprung sport zeit gewichtung anteil notenschlüssel eigene', 'eigener Skala': 'punkte notengrenzen skala', 'Sem.': 'semester halbjahr', 'rote': 'gefährdet frühwarnung nicht genügend',
+  'Notenvorschlag': 'knapp vorschlag', 'Zeugnisnote fest': 'zeugnis schulnachricht jahreszeugnis konferenz semesternote', 'Schularbeit mit Punkten': 'test punkte notenschlüssel notenspiegel prüfung', 'eigene Kategorien': 'messwert weitsprung sport zeit gewichtung anteil notenschlüssel eigene burschen mädchen getrennt wertungsgruppe gruppe', 'eigener Skala': 'punkte notengrenzen skala', 'Sem.': 'semester halbjahr', 'rote': 'gefährdet frühwarnung nicht genügend',
   'PDF für ein Elterngespräch': 'drucken sprechtag', 'Notenkonferenz': 'konferenz zeugnis excel', 'Datei am iPhone': 'dateien icloud speichern teilen',
   'gespeichert?': 'cloud server datenschutz', 'sichere ich': 'backup export', 'neues Gerät': 'handy handywechsel tablet ipad übertragen umzug backup',
   'PIN vergessen': 'code gesperrt sperre', 'Handy und iPad': 'abgleich synchronisieren sync zwei geräte tablet airdrop', 'Sicherungspasswort vergessen': 'backup passwort', 'Safari': 'cache verlauf speicher löschen',
@@ -3554,23 +3563,46 @@ const actions = {
     const c = currentClass(); if (!c) return;
     const k = d.t, t = typeOf(c, k); if (!t) return;
     const nk = numKey(c, k) || { t: ['', '', '', ''], m: 'best' }, hi = t.high, u = t.unit ? ' ' + t.unit : '';
-    let mode = nk.m || 'best';
+    let mode = nk.m || 'best', two = !!nk.t2;
+    const N = wgNames(c), ph = hi ? ['4,20', '3,80', '3,40', '3,00'] : ['8,0', '8,5', '9,0', '9,5'], ph2 = hi ? ['3,80', '3,40', '3,00', '2,60'] : ['8,5', '9,0', '9,5', '10,0'];
+    const val = (a, i) => a && a[i] !== '' && a[i] != null ? fmtVal(a[i]) : '';
     const r = await modal({ title: 'Notenschlüssel', text: `${t.label}${u ? ' in' + u : ''} · ${hi ? 'höher ist besser' : 'niedriger ist besser'}`, ok: 'Speichern',
-      body: `<div class="nkbox">${['Sehr gut', 'Gut', 'Befriedigend', 'Genügend'].map((l, i) => `<label class="nkrow"><span>${i + 1} · ${l}</span><span class="muted">${hi ? 'ab' : 'bis'}</span>
-        <input name="t${i}" inputmode="decimal" value="${nk.t[i] === '' ? '' : fmtVal(nk.t[i])}" placeholder="${hi ? ['4,20', '3,80', '3,40', '3,00'][i] : ['8,0', '8,5', '9,0', '9,5'][i]}" autocomplete="off"><span class="muted">${esc(t.unit || '')}</span></label>`).join('')}
-        <p class="fine">5 · Nicht genügend: ${hi ? 'darunter' : 'darüber'}.</p>
+      body: `<div class="seg kindseg nktwo"><button type="button" data-two="0" class="${two ? '' : 'on'}">Ein Schlüssel für alle</button><button type="button" data-two="1" class="${two ? 'on' : ''}">Getrennt nach Gruppe</button></div>
+        <div class="nkbox${two ? ' two' : ''}"><div class="nkrow nkhead"><span></span><span></span><span class="g1">${esc(N[0])}</span><span class="g2">${esc(N[1])}</span><span></span></div>
+        ${['Sehr gut', 'Gut', 'Befriedigend', 'Genügend'].map((l, i) => `<label class="nkrow"><span>${i + 1} · ${l}</span><span class="muted">${hi ? 'ab' : 'bis'}</span>
+          <input name="t${i}" inputmode="decimal" value="${val(nk.t, i)}" placeholder="${ph[i]}" autocomplete="off" aria-label="${l} ${esc(N[0])}">
+          <input name="u${i}" class="g2" inputmode="decimal" value="${val(nk.t2, i)}" placeholder="${ph2[i]}" autocomplete="off" aria-label="${l} ${esc(N[1])}"><span class="muted">${esc(t.unit || '')}</span></label>`).join('')}
+        <p class="fine">5 · Nicht genügend: ${hi ? 'darunter' : 'darüber'}.<span class="g2"> Die Gruppen benennst und ordnest du unter „Wertungsgruppen“ auf der Seite Bewertung.</span></p>
         <div class="seg kindseg nkmode"><button type="button" data-m="best" class="${mode === 'best' ? 'on' : ''}">Bester Wert zählt</button><button type="button" data-m="avg" class="${mode === 'avg' ? 'on' : ''}">Schnitt aller Messungen</button></div></div>`,
-      mount(dl) { dl.querySelectorAll('.nkmode button').forEach(b => b.addEventListener('click', () => { mode = b.dataset.m; dl.querySelectorAll('.nkmode button').forEach(x => x.classList.toggle('on', x === b)); })); },
-      collect: dl => [0, 1, 2, 3].map(i => dl.querySelector(`[name=t${i}]`).value.trim().replace(',', '.')) });
+      mount(dl) {
+        dl.querySelectorAll('.nkmode button').forEach(b => b.addEventListener('click', () => { mode = b.dataset.m; dl.querySelectorAll('.nkmode button').forEach(x => x.classList.toggle('on', x === b)); }));
+        dl.querySelectorAll('.nktwo button').forEach(b => b.addEventListener('click', () => { two = b.dataset.two === '1'; dl.querySelectorAll('.nktwo button').forEach(x => x.classList.toggle('on', x === b)); dl.querySelector('.nkbox').classList.toggle('two', two); }));
+      },
+      collect: dl => ({ a: [0, 1, 2, 3].map(i => dl.querySelector(`[name=t${i}]`).value.trim().replace(',', '.')), b: [0, 1, 2, 3].map(i => dl.querySelector(`[name=u${i}]`).value.trim().replace(',', '.')) }) });
     if (!r) return;
-    if (r.every(x => x === '')) { const kk = cfg(c).numkey || {}; delete kk[k]; await save(); render(); return toast('Notenschlüssel entfernt'); }
-    const v = r.map(Number);
-    if (r.some(x => x === '' || isNaN(Number(x)))) return toast('Bitte alle vier Grenzen eintragen');
-    const ok = v.every((x, i) => i === 0 || (hi ? x < v[i - 1] : x > v[i - 1]));
-    if (!ok) return toast(hi ? 'Die Grenzen müssen von 1 bis 4 kleiner werden' : 'Die Grenzen müssen von 1 bis 4 größer werden');
-    cfg(c).numkey = Object.assign({}, cfg(c).numkey, { [k]: { t: v, m: mode } });
-    if (!(cfg(c).weight[k] > 0)) toast('Gespeichert – jetzt Anteil einstellen');
+    if (r.a.every(x => x === '') && (!two || r.b.every(x => x === ''))) { const kk = cfg(c).numkey || {}; delete kk[k]; await save(); render(); return toast('Notenschlüssel entfernt'); }
+    const check = (arr, name) => {
+      if (arr.some(x => x === '' || isNaN(Number(x)))) { toast(`Bitte alle vier Grenzen eintragen${name ? ' – ' + name : ''}`); return null; }
+      const v = arr.map(Number);
+      if (!v.every((x, i) => i === 0 || (hi ? x < v[i - 1] : x > v[i - 1]))) { toast(`${name ? name + ': ' : ''}Die Grenzen müssen von 1 bis 4 ${hi ? 'kleiner' : 'größer'} werden`); return null; }
+      return v;
+    };
+    const va = check(r.a, two ? N[0] : ''); if (!va) return;
+    const vb = two ? check(r.b, N[1]) : null; if (two && !vb) return;
+    cfg(c).numkey = Object.assign({}, cfg(c).numkey, { [k]: two ? { t: va, t2: vb, m: mode } : { t: va, m: mode } });
+    if (two && !c.students.some(s => s.wg === 1)) toast('Gespeichert – jetzt unter „Wertungsgruppen“ zuordnen');
+    else if (!(cfg(c).weight[k] > 0)) toast('Gespeichert – jetzt Anteil einstellen');
     await save(); render();
+  },
+  async wgSet(d) {
+    const c = currentClass(), s = c && c.students.find(x => x.id === d.s); if (!s) return;
+    if (d.v === '1') s.wg = 1; else delete s.wg;
+    await save(); render();
+  },
+  async wgName(inp) {
+    const c = currentClass(); if (!c) return;
+    const n = [...wgNames(c)]; n[Number(inp.dataset.i)] = inp.value.trim() || ['Gruppe 1', 'Gruppe 2'][Number(inp.dataset.i)];
+    cfg(c).wg = { names: n }; await save(); render();
   },
   async wStep(d) {
     const c = currentClass(); if (!c) return;
