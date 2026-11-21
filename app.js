@@ -8,7 +8,9 @@ const PUBLIC_KEY = {
   x: 'kHkzCWyGjuxGxGf_3AMH2F_MKEWEjH1hfCnBf7K1Imo',
   y: 'Fv556fMFzralLJTUqYxNxI68b9Fd4ctkLzgn07BzKj0'
 };
-const APP_VERSION = '0.3';
+const APP_VERSION = '0.1';
+// Interne, stetig steigende Nummer für „Was ist neu“ – unabhängig von der angezeigten Version (die Zählung begann neu bei 0.1)
+const APP_BUILD = 4;
 
 const TYPES = {
   ma: { label: 'Mitarbeit', long: 'Mitarbeit', icon: 'spark', vals: [['+', '+', 'g'], ['~', '~', 'm'], ['-', '−', 'b']] },
@@ -1826,10 +1828,9 @@ function viewPlan() {
 
 /* ---------- Was ist neu? (einmal nach einem Update) ---------- */
 // Versionszählung neu ab 0.1 (Pilotphase, 1.0 = offizieller Start). Ältere Neuerungen (alte Zählung 5.x) stehen in NEWS_OLD.
+// [interne Nummer, angezeigte Version, Neuerungen]
 const NEWS = [
-  ['0.3', ['Sicherungen sind jetzt PDF-Dateien (mit Deckblatt, Daten verschlüsselt darin). So bietet das iPhone im Teilen-Menü OneDrive direkt an. Ältere Sicherungen funktionieren weiter.']],
-  ['0.2', ['Sicherungen lassen sich am iPhone direkt an OneDrive teilen. Neue Endung „.teachersbook“ – ältere „.json“-Sicherungen funktionieren weiter.']],
-  ['0.1', ['KeimBook heißt jetzt TeachersBook – mit neuem Symbol. Deine Daten, Lizenz und die Adresse bleiben gleich.', 'Neue Versionszählung: 0.x während der Pilotphase, 1.0 beim offiziellen Start.']]
+  [4, '0.1', ['Neues, ruhigeres Aussehen im Schulheft-Stil und ein neues Symbol: eine Heftseite mit einer rot eingekreisten Eins.', 'Sicherungen sind PDF-Dateien – so lassen sie sich am iPhone direkt in OneDrive speichern. Ältere Sicherungen funktionieren weiter.', 'KeimBook heißt jetzt TeachersBook. Deine Daten, Lizenz und die Adresse bleiben gleich.']]
 ];
 const NEWS_OLD = [
   ['5.12', ['Sport: getrennte Notenschlüssel für Messwerte, z. B. für Burschen und Mädchen – unter Bewertung & Gewichtung → Messwert antippen → „Getrennt nach Gruppe“.']],
@@ -1846,16 +1847,23 @@ const NEWS_OLD = [
   ['5.1', ['Hilfe mit häufigen Fragen.', 'Schuljahreswechsel ab September und Löschfristen für Archive.']]
 ];
 const verNum = v => String(v || '0').split('.').reduce((a, x, i) => a + Number(x) / (i ? 100 ** i : 1), 0);
-function newsSince(v) { return NEWS.filter(([nv]) => verNum(nv) > verNum(v)); }
-const newsHTML = list => `<div class="news">${list.map(([v, items]) => `<div class="nv">Version ${v}</div><ul>${items.map(t => `<li>${esc(t)}</li>`).join('')}</ul>`).join('')}</div>`;
+function newsSince(build) { return NEWS.filter(([b]) => b > build); }
+const newsHTML = list => `<div class="news">${list.map(x => x.length === 3 ? x.slice(1) : x).map(([v, items]) => `<div class="nv">Version ${v}</div><ul>${items.map(t => `<li>${esc(t)}</li>`).join('')}</ul>`).join('')}</div>`;
+// Was hat dieses Gerät schon gesehen? Neue Zählung: seenBuild. Ältere Geräte haben nur seenVersion (0.1–0.3 oder 5.x).
+function seenBuild(p, hasData) {
+  if (typeof p.seenBuild === 'number') return p.seenBuild;
+  const old = { '0.1': 1, '0.2': 2, '0.3': 3 }[p.seenVersion];
+  if (old) return old;
+  return p.seenVersion || hasData ? 0 : APP_BUILD;   // 5.x oder ohne Vermerk mit Daten: alles zeigen; neu installiert: nichts
+}
 async function newsCheck() {
   if (!license || locked || $('#dlg').open) return;
   const p = data.prefs || {};
   // Neu installiert: nichts zeigen (die Einführung erklärt alles). Bestehende Nutzung ohne Vermerk: alles seit 5.0.
-  const seen = p.seenVersion && verNum(p.seenVersion) < 1 ? p.seenVersion : (p.seenVersion || data.classes.length ? '0.0' : APP_VERSION);
+  const seen = seenBuild(p, data.classes.length > 0);
   const list = newsSince(seen);
-  if (list.length) await modal({ title: 'Neu in TeachersBook', text: seen === '0.0' ? 'Das ist neu:' : `Seit deiner letzten Version (${seen}) ist dazugekommen:`, body: newsHTML(list), ok: 'Alles klar', cancel: 'Schließen' });
-  if (p.seenVersion !== APP_VERSION) { data.prefs = Object.assign({}, data.prefs, { seenVersion: APP_VERSION }); await save(); }
+  if (list.length) await modal({ title: 'Neu in TeachersBook', text: 'Das ist neu:', body: newsHTML(list), ok: 'Alles klar', cancel: 'Schließen' });
+  if (p.seenBuild !== APP_BUILD) { data.prefs = Object.assign({}, data.prefs, { seenBuild: APP_BUILD }); await save(); }
 }
 // Rückmeldung per Mail – nur App-Version und Gerät, keine Schülerdaten
 const FEEDBACK_TO = 'marcus.marzinger@keimgasse.at';
@@ -2414,7 +2422,7 @@ function xlsxBook(sheets) {
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols>${sh.widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('')}</cols><sheetData><row r="1">${sh.head.map((h, i) => cell(h, 1, i, 1)).join('')}</row>${sh.rows.map((row, ri) => `<row r="${ri + 2}">${row.map((v, i) => cell(v, ri + 2, i, (sh.num || []).includes(i) && typeof v === 'number' ? 2 : 0)).join('')}</row>`).join('')}</sheetData></worksheet>`;
   const R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
   const styles = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="1"><numFmt numFmtId="164" formatCode="0.0"/></numFmts><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE3EEEA"/></patternFill></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="1"><numFmt numFmtId="164" formatCode="0.0"/></numFmts><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE3E9F6"/></patternFill></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
   return zipStore([
     ['[Content_Types].xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>${sheets.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')}<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`],
     ['_rels/.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${R}/officeDocument" Target="xl/workbook.xml"/></Relationships>`],
@@ -2467,7 +2475,7 @@ function pdfKit() {
   const wid = (str, size, bold) => [...String(str)].reduce((a, ch) => a + (/[il.,:;'|!\s]/.test(ch) ? .28 : /[mwMW]/.test(ch) ? .83 : /[A-ZÄÖÜ]/.test(ch) ? .67 : /[0-9]/.test(ch) ? .556 : .52), 0) * size * (bold ? 1.05 : 1);
   const fit = (str, max, size, bold) => { str = String(str); if (wid(str, size, bold) <= max) return str; while (str.length > 1 && wid(str + '…', size, bold) > max) str = str.slice(0, -1); return str + '…'; };
   const rgb = h => [1, 3, 5].map(i => (parseInt(h.slice(i, i + 2), 16) / 255).toFixed(3)).join(' ');
-  const COL = { ink: '#16181A', ink2: '#5E6369', ink3: '#9AA0A6', line: '#E4E2DC', acc: '#1F5C50', accS: '#E3EEEA', pos: '#2E7A4E', mid: '#9A6B12', neg: '#B0402C', negS: '#F6E2DD', zebra: '#F7F6F3', card: '#F4F3EF' };
+  const COL = { ink: '#1A1F2B', ink2: '#5E6369', ink3: '#9AA0A6', line: '#E1E5EC', acc: '#1E3F8F', accS: '#E3E9F6', pos: '#2E7A4E', mid: '#9A6B12', neg: '#B0402C', negS: '#F6E2DD', zebra: '#F6F7F9', card: '#F3F5F7' };
   const pages = []; let ops = [];
   const k = {
     W, H, M, COL, wid, fit,
