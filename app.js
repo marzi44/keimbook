@@ -8,7 +8,7 @@ const PUBLIC_KEY = {
   x: 'kHkzCWyGjuxGxGf_3AMH2F_MKEWEjH1hfCnBf7K1Imo',
   y: 'Fv556fMFzralLJTUqYxNxI68b9Fd4ctkLzgn07BzKj0'
 };
-const APP_VERSION = '5.8';
+const APP_VERSION = '5.9';
 
 const TYPES = {
   ma: { label: 'Mitarbeit', long: 'Mitarbeit', icon: 'spark', vals: [['+', '+', 'g'], ['~', '~', 'm'], ['-', '−', 'b']] },
@@ -103,7 +103,16 @@ function kindOf(c, k) {
 }
 const catKeys = c => [...BUILTIN, ...cfg(c).cats.custom.map(x => x.id)];
 const visKeys = c => catKeys(c).filter(k => !cfg(c).cats.hidden.includes(k));
-const weighable = (c, k) => ['note', 'hu'].includes(kindOf(c, k));
+const weighable = (c, k) => ['note', 'hu', 'num'].includes(kindOf(c, k));
+// Notenschlüssel für Messwerte: cfg.numkey[k] = { t: [Grenze für 1, 2, 3, 4], m: 'best' | 'avg' }
+// Höher ist besser: 1 ab t[0] … ; niedriger ist besser (z. B. Zeit): 1 bis t[0] …
+const numKey = (c, k) => (cfg(c).numkey || {})[k] || null;
+function numGrade(c, k, v) {
+  const nk = numKey(c, k); if (!nk || v == null || isNaN(v)) return null;
+  const hi = typeOf(c, k).high;
+  for (let i = 0; i < 4; i++) if (hi ? v >= nk.t[i] - 1e-9 : v <= nk.t[i] + 1e-9) return i + 1;
+  return 5;
+}
 const shortOf = (c, k) => (c && cfg(c).cats.labels[k]) || SHORT[k] || (typeOf(c, k) || { label: k }).label;
 const scaleOf = (c, t) => kindOf(c, t) === 'note' ? (cfg(c).scale[t] || 'grade') : null;
 const valsFor = (c, t) => kindOf(c, t) !== 'note' ? TYPES[t].vals : scaleOf(c, t) === 'own' ? ownLevels(c, t).map(x => ['o:' + x.id, x.l, gcls(x.g)]) : SCALES[scaleOf(c, t)] || SCALES.grade;
@@ -816,6 +825,8 @@ function stats(c, sid) {
       if (isNaN(v)) continue;
       x.n++; x.last = v; x.lastD = e.d;
       if (x.best == null || (hi ? v > x.best : v < x.best)) x.best = v;
+      const g = numGrade(c, e.t, v);
+      if (g != null && (numKey(c, e.t).m === 'avg')) { acc[e.t].s += g; acc[e.t].w += 1; }
       continue;
     }
     if (kind === 'text') { const x = st.texts[e.t]; x.n++; x.last = e.v; x.lastD = e.d; continue; }
@@ -836,6 +847,7 @@ function stats(c, sid) {
   let S = 0, W = 0;
   for (const k of catKeys(c)) {
     st.avg[k] = acc[k].w ? acc[k].s / acc[k].w : null;
+    if (kindOf(c, k) === 'num' && numKey(c, k) && numKey(c, k).m !== 'avg') st.avg[k] = numGrade(c, k, st.nums[k].best);
     if (vis.includes(k) && weighable(c, k) && (wt[k] || 0) > 0 && st.avg[k] != null) { S += wt[k] * st.avg[k]; W += wt[k]; }
   }
   st.total = W ? S / W : null;
@@ -973,7 +985,7 @@ function metricBase(c, st, k) {
   if (k === 'an') return st.abs.A ? `<span class="b-t">${st.abs.A}× abw.</span>` : dash;
   if (k === 'vh') return st.vh.n ? `<span class="b-t">${st.vh.n}×</span>` : dash;
   const kind = kindOf(c, k);
-  if (kind === 'num') { const x = st.nums[k]; return x.best == null ? dash : esc(withUnit(x.best, typeOf(c, k).unit)); }
+  if (kind === 'num') { const x = st.nums[k]; return x.best == null ? dash : esc(withUnit(x.best, typeOf(c, k).unit)) + (st.avg[k] != null ? ` <span class="${gradeCls(st.avg[k])}">(${fmtNum(st.avg[k])})</span>` : ''); }
   if (kind === 'text') { const x = st.texts[k]; return x.n ? x.n + '×' : dash; }
   if (scaleOf(c, k) === 'pct' && st.pct[k] != null) return `<span class="${gradeCls(st.avg[k])}">${Math.round(st.pct[k])} %</span>`;
   if (st.avg[k] == null) return dash;
@@ -1068,10 +1080,12 @@ function viewRating(c) {
   const wKeys = visKeys(c).filter(k => weighable(c, k));
   const sum = wKeys.reduce((a, k) => a + (cf.weight[k] || 0), 0);
   const rows = wKeys.map(k => {
-    const t = typeOf(c, k), w = cf.weight[k] || 0, isNote = noteKeys.includes(k);
-    const name = `${esc(t.label)}<span class="muted block">${isNote ? esc(scaleShort(c, k)) + ' ›' : 'gebracht = 1 · nicht = 5'}</span>`;
+    const t = typeOf(c, k), w = cf.weight[k] || 0, isNote = noteKeys.includes(k), isNum = kindOf(c, k) === 'num', nk = isNum && numKey(c, k);
+    const sub = isNote ? esc(scaleShort(c, k)) + ' ›' : isNum ? (nk ? `Notenschlüssel: 1 ${t.high ? 'ab' : 'bis'} ${esc(withUnit(nk.t[0], t.unit))} ›` : '<span class="b-t">Noch kein Notenschlüssel – antippen ›</span>') : 'gebracht = 1 · nicht = 5';
+    const name = `${esc(t.label)}<span class="muted block">${sub}</span>`;
     return `<div class="lrow static wrow"><span class="licon">${ICON[t.icon]}</span>
-      ${isNote ? `<button class="grow wname" data-a="scaleEdit" data-t="${k}" aria-label="${esc(t.label)}: Notenskala ändern">${name}</button>` : `<span class="grow">${name}</span>`}
+      ${isNote ? `<button class="grow wname" data-a="scaleEdit" data-t="${k}" aria-label="${esc(t.label)}: Notenskala ändern">${name}</button>`
+        : isNum ? `<button class="grow wname" data-a="numKeyEdit" data-t="${k}" aria-label="${esc(t.label)}: Notenschlüssel festlegen">${name}</button>` : `<span class="grow">${name}</span>`}
       <div class="stepper"><button data-a="wStep" data-t="${k}" data-v="-5" aria-label="${esc(t.label)} weniger">−</button><span class="num">${w} %</span><button data-a="wStep" data-t="${k}" data-v="5" aria-label="${esc(t.label)} mehr">+</button></div></div>`;
   }).join('');
   const sumLine = sum === 100 ? '<span class="g-t">Summe 100 %</span>'
@@ -1080,7 +1094,7 @@ function viewRating(c) {
   return `<div class="hero"><div class="eyebrow">${esc(c.name)}</div><h1>Bewertung</h1>
       <div class="sub">Notenskala und Anteil an der Gesamtnote je Kategorie.</div></div>
     <div class="card">${rows || '<div class="nothing">Keine benotbare Kategorie sichtbar</div>'}</div>
-    <p class="fine">${sumLine} · Kategorie antippen ändert die Notenskala (1–5, + ~ −, Prozent oder eigene). Je Kategorie wird ein Schnitt gebildet und mit ihrem Anteil gewichtet – 0 % zählt nicht.</p>
+    <p class="fine">${sumLine} · Kategorie antippen ändert die Notenskala (1–5, + ~ −, Prozent oder eigene). Je Kategorie wird ein Schnitt gebildet und mit ihrem Anteil gewichtet – 0 % zählt nicht. Eigene Kategorien zählen genauso: Noten-Kategorien direkt, <b>Messwerte</b> (z. B. Weitsprung) über einen Notenschlüssel. Notizen werden nicht benotet.</p>
     ${data.classes.length > 1 ? `<button class="btn secondary block mt" data-a="cfgAll">Für alle Klassen übernehmen</button>` : ''}`;
 }
 
@@ -1254,6 +1268,7 @@ function viewStudent(c, sid) {
       const x = st.nums[k];
       val = x.best == null ? '–' : esc(withUnit(x.best, t.unit));
       sub = x.n ? `${t.high ? 'Bestwert' : 'Bestzeit'} · zuletzt ${withUnit(x.last, t.unit)} · ${plural(x.n, 'Messung', 'Messungen')}` : 'noch keine';
+      if (a != null) { val += ` <span class="${gradeCls(a)}">→ ${fmtNum(a)}</span>`; sub = `Note ${numKey(c, k).m === 'avg' ? 'Ø aller Messungen' : `nach ${t.high ? 'Bestwert' : 'Bestzeit'}`} · zuletzt ${withUnit(x.last, t.unit)} · ${plural(x.n, 'Messung', 'Messungen')}`; }
     } else if (kind === 'text') {
       const x = st.texts[k];
       val = x.n ? x.n + '×' : '–';
@@ -1767,6 +1782,7 @@ function viewPlan() {
 
 /* ---------- Was ist neu? (einmal nach einem Update) ---------- */
 const NEWS = [
+  ['5.9', ['Eigene Kategorien zählen zur Gesamtnote – auch Messwerte wie Weitsprung oder 60-m-Lauf über einen eigenen Notenschlüssel (Bewertung & Gewichtung).']],
   ['5.8', ['Schülerliste mit mehreren Klassen (z. B. 7a, 7b, 7c) als eine Gruppe mit eigenem Namen importieren – z. B. „Biologie Labor“.', 'Stundenplan mit A- und B-Wochen.', 'Rückmeldung senden – in der Hilfe.']],
   ['5.7', ['Deutlich schneller, auch mit einem vollen Schuljahr an Einträgen.']],
   ['5.6', ['Notenspiegel einer Schularbeit als PDF – ohne Namen oder als Ergebnisliste.', 'HÜ-Thema steht jetzt auch im PDF und in Excel.']],
@@ -1820,6 +1836,7 @@ const HELP = [
     ['Wie entsteht die Gesamtnote?', 'Jede Kategorie wird für sich gemittelt und dann nach deiner <b>Gewichtung</b> zusammengerechnet (Klasse → <b>••• → „Bewertung & Gewichtung“</b>). Kategorien mit 0 % zählen nicht. Bei Mitarbeit gilt + = 1, ~ = 3, − = 5.'],
     ['Was bedeutet „2–3“ beim Notenvorschlag?', 'Der Schnitt liegt genau zwischen zwei Noten (z. B. 2,5). Dann entscheidest du – die App schlägt bewusst nichts vor.'],
     ['Wie trage ich eine Schularbeit mit Punkten ein?', 'Klasse → Kategorie <b>Schriftlich</b> → <b>„Schularbeit mit Punkten“</b> (oder <b>••• → „Schularbeiten & Tests“</b>) → <b>„Neue Schularbeit / Test“</b> → Höchstpunkte eingeben. Dann je Kind die Punkte eintippen – die Note rechnet die App mit dem <b>Notenschlüssel</b> aus (änderbar), der <b>Notenspiegel</b> entsteht automatisch. Die Noten zählen ganz normal zur Gesamtnote.'],
+    ['Zählen eigene Kategorien zur Gesamtnote?', 'Ja. Klasse → <b>••• → „Bewertung & Gewichtung“</b> → beim Anteil auf <b>+</b> tippen. Eigene <b>Noten-Kategorien</b> zählen sofort. Bei <b>Messwerten</b> (z. B. Weitsprung, 60-m-Lauf) zuerst die Kategorie antippen und den <b>Notenschlüssel</b> festlegen – z. B. 1 ab 4,20 m – und wählen, ob der beste Wert oder der Schnitt aller Messungen zählt. Notizen werden nicht benotet.'],
     ['Kann ich in Prozent oder mit eigener Skala bewerten?', 'Ja, je Kategorie unter <b>„Bewertung & Gewichtung“</b>: 1–5, + ~ −, <b>Prozent</b> mit eigenen Notengrenzen oder eine <b>eigene Skala</b>.'],
     ['Wo halte ich die Zeugnisnote fest?', 'Reiter <b>Übersicht</b> → <b>„Zeugnisnoten“</b> → 1. Semester oder Jahreszeugnis wählen → je Kind die Note antippen, die du ins Zeugnis schreibst („nb“ = nicht beurteilt). <b>„Vorschläge übernehmen“</b> trägt alle eindeutigen Vorschläge auf einmal ein. Die Liste kannst du als PDF oder Excel exportieren.'],
     ['Was zeigen „1. Sem.“, „2. Sem.“ und „Jahr“?', 'Den Zeitraum für Noten, Übersicht und Exporte. Wann das 2. Semester beginnt, stellst du unter <b>Zahnrad → Schuljahr</b> ein.'],
@@ -1851,8 +1868,8 @@ const HELP_KW = {
   'ohne WebUntis': 'namen eintippen schüler', 'Gruppe': 'religion wahlpflicht mischen modul labor gruppenname import mehrere klassen', 'vertippt': 'falsch fehler löschen korrigieren',
   '„P“': 'passiv keine leistung', 'nicht benoten': 'abwesend krank fehlt', 'anderen Tag': 'nachtragen datum gestern vergangen',
   'schneller': 'alle suche suchen', 'Sitzplan': 'plätze sitzordnung', 'Stundenplan': 'stunden zeiten uhrzeit automatisch öffnen aktuelle klasse doppelstunde a-woche b-woche ab wechselnde wochen', 'Wer kommt dran': 'zufall zufällig prüfen wiederholung',
-  'notiere ich': 'eltern sprechtag gespräch notiz', 'Gesamtnote?': 'durchschnitt schnitt gewichtung prozent rechnen',
-  'Notenvorschlag': 'knapp vorschlag', 'Zeugnisnote fest': 'zeugnis schulnachricht jahreszeugnis konferenz semesternote', 'Schularbeit mit Punkten': 'test punkte notenschlüssel notenspiegel prüfung', 'eigener Skala': 'punkte notengrenzen skala', 'Sem.': 'semester halbjahr', 'rote': 'gefährdet frühwarnung nicht genügend',
+  'notiere ich': 'eltern sprechtag gespräch notiz', 'Wie entsteht die Gesamtnote': 'durchschnitt schnitt gewichtung prozent rechnen',
+  'Notenvorschlag': 'knapp vorschlag', 'Zeugnisnote fest': 'zeugnis schulnachricht jahreszeugnis konferenz semesternote', 'Schularbeit mit Punkten': 'test punkte notenschlüssel notenspiegel prüfung', 'eigene Kategorien': 'messwert weitsprung sport zeit gewichtung anteil notenschlüssel eigene', 'eigener Skala': 'punkte notengrenzen skala', 'Sem.': 'semester halbjahr', 'rote': 'gefährdet frühwarnung nicht genügend',
   'PDF für ein Elterngespräch': 'drucken sprechtag', 'Notenkonferenz': 'konferenz zeugnis excel', 'Datei am iPhone': 'dateien icloud speichern teilen',
   'gespeichert?': 'cloud server datenschutz', 'sichere ich': 'backup export', 'neues Gerät': 'handy handywechsel tablet ipad übertragen umzug backup',
   'PIN vergessen': 'code gesperrt sperre', 'Handy und iPad': 'abgleich synchronisieren sync zwei geräte tablet airdrop', 'Sicherungspasswort vergessen': 'backup passwort', 'Safari': 'cache verlauf speicher löschen',
@@ -3494,6 +3511,28 @@ const actions = {
       mount(dl) { bindScale(dl.querySelector('.scalebox'), st); }, collect: () => st });
     if (!r) return;
     applyScale(c, k, r); await save(); render(); toast(`${t.label}: ${SCALE_NAMES[r.scale]}`);
+  },
+  async numKeyEdit(d) {
+    const c = currentClass(); if (!c) return;
+    const k = d.t, t = typeOf(c, k); if (!t) return;
+    const nk = numKey(c, k) || { t: ['', '', '', ''], m: 'best' }, hi = t.high, u = t.unit ? ' ' + t.unit : '';
+    let mode = nk.m || 'best';
+    const r = await modal({ title: 'Notenschlüssel', text: `${t.label}${u ? ' in' + u : ''} · ${hi ? 'höher ist besser' : 'niedriger ist besser'}`, ok: 'Speichern',
+      body: `<div class="nkbox">${['Sehr gut', 'Gut', 'Befriedigend', 'Genügend'].map((l, i) => `<label class="nkrow"><span>${i + 1} · ${l}</span><span class="muted">${hi ? 'ab' : 'bis'}</span>
+        <input name="t${i}" inputmode="decimal" value="${nk.t[i] === '' ? '' : fmtVal(nk.t[i])}" placeholder="${hi ? ['4,20', '3,80', '3,40', '3,00'][i] : ['8,0', '8,5', '9,0', '9,5'][i]}" autocomplete="off"><span class="muted">${esc(t.unit || '')}</span></label>`).join('')}
+        <p class="fine">5 · Nicht genügend: ${hi ? 'darunter' : 'darüber'}.</p>
+        <div class="seg kindseg nkmode"><button type="button" data-m="best" class="${mode === 'best' ? 'on' : ''}">Bester Wert zählt</button><button type="button" data-m="avg" class="${mode === 'avg' ? 'on' : ''}">Schnitt aller Messungen</button></div></div>`,
+      mount(dl) { dl.querySelectorAll('.nkmode button').forEach(b => b.addEventListener('click', () => { mode = b.dataset.m; dl.querySelectorAll('.nkmode button').forEach(x => x.classList.toggle('on', x === b)); })); },
+      collect: dl => [0, 1, 2, 3].map(i => dl.querySelector(`[name=t${i}]`).value.trim().replace(',', '.')) });
+    if (!r) return;
+    if (r.every(x => x === '')) { const kk = cfg(c).numkey || {}; delete kk[k]; await save(); render(); return toast('Notenschlüssel entfernt'); }
+    const v = r.map(Number);
+    if (r.some(x => x === '' || isNaN(Number(x)))) return toast('Bitte alle vier Grenzen eintragen');
+    const ok = v.every((x, i) => i === 0 || (hi ? x < v[i - 1] : x > v[i - 1]));
+    if (!ok) return toast(hi ? 'Die Grenzen müssen von 1 bis 4 kleiner werden' : 'Die Grenzen müssen von 1 bis 4 größer werden');
+    cfg(c).numkey = Object.assign({}, cfg(c).numkey, { [k]: { t: v, m: mode } });
+    if (!(cfg(c).weight[k] > 0)) toast('Gespeichert – jetzt Anteil einstellen');
+    await save(); render();
   },
   async wStep(d) {
     const c = currentClass(); if (!c) return;
