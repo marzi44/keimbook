@@ -1,5 +1,5 @@
 'use strict';
-/* KeimBook – läuft komplett lokal. Keine Netzwerkanfragen, keine externen Dienste. */
+/* TeachersBook – läuft komplett lokal. Keine Netzwerkanfragen, keine externen Dienste. */
 
 // Öffentlicher Lizenzschlüssel. Lizenzen können nur mit dem passenden privaten Schlüssel
 // (im Ordner "PRIVAT-nicht-hochladen") erzeugt werden.
@@ -8,7 +8,7 @@ const PUBLIC_KEY = {
   x: 'kHkzCWyGjuxGxGf_3AMH2F_MKEWEjH1hfCnBf7K1Imo',
   y: 'Fv556fMFzralLJTUqYxNxI68b9Fd4ctkLzgn07BzKj0'
 };
-const APP_VERSION = '5.12';
+const APP_VERSION = '0.1';
 
 const TYPES = {
   ma: { label: 'Mitarbeit', long: 'Mitarbeit', icon: 'spark', vals: [['+', '+', 'g'], ['~', '~', 'm'], ['-', '−', 'b']] },
@@ -433,7 +433,7 @@ function mergeData(inc) {
 // Sicherungs- bzw. Abgleich-Datei öffnen (fragt nach dem Sicherungspasswort)
 async function readBackupFile(f, title = 'Sicherung öffnen') {
   let j;
-  try { j = JSON.parse(await readText(f)); if (!j || j.app !== 'klassenbuch') throw 0; } catch { toast('Das ist keine gültige KeimBook-Datei'); return null; }
+  try { j = JSON.parse(await readText(f)); if (!j || j.app !== 'klassenbuch') throw 0; } catch { toast('Das ist keine gültige TeachersBook-Datei'); return null; }
   let inc = j.data;
   if (j.enc) {
     const pw = await secretSheet({ title, text: 'Diese Datei ist verschlüsselt. Gib das Sicherungspasswort des Geräts ein, auf dem sie erstellt wurde.', ok: 'Öffnen' });
@@ -443,7 +443,7 @@ async function readBackupFile(f, title = 'Sicherung öffnen') {
       inc = JSON.parse(TD.decode(await Crypt.open(key, { iv: fromB64(j.enc.iv), ct: fromB64(j.enc.ct) })));
     } catch { toast('Falsches Passwort'); return null; }
   }
-  if (!inc || !Array.isArray(inc.classes) || !Array.isArray(inc.entries)) { toast('Das ist keine gültige KeimBook-Datei'); return null; }
+  if (!inc || !Array.isArray(inc.classes) || !Array.isArray(inc.entries)) { toast('Das ist keine gültige TeachersBook-Datei'); return null; }
   return { inc, when: j.exportiert || '', sync: !!j.abgleich };
 }
 const mergeText = st => st.neu + st.geaendert + st.geloescht ? `${st.neu} neu, ${st.geaendert} geändert, ${st.geloescht} entfernt` : 'Beide Stände waren schon gleich';
@@ -541,7 +541,7 @@ function viewPin() {
   return `<div class="lock pinlock">
       <img class="lock-logo" src="icon-512.png" alt="">
       <h1>Gesperrt</h1>
-      <p>PIN eingeben, um KeimBook zu öffnen.</p>
+      <p>PIN eingeben, um TeachersBook zu öffnen.</p>
       <div class="pindots${pinMsg ? ' bad' : ''}" aria-label="${pinBuf.length} von ${PIN_LEN} Ziffern">${Array.from({ length: PIN_LEN }, (_, i) => `<i class="${i < pinBuf.length ? 'on' : ''}"></i>`).join('')}</div>
       <p class="err">${esc(wait > 0 ? `Zu viele Versuche – bitte ${wait} s warten.` : pinMsg)}</p>
       <div class="keypad">${['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', '⌫'].map(k => k ? `<button class="key${k === '⌫' ? ' del' : ''}" data-a="pinKey" data-v="${k}" aria-label="${k === '⌫' ? 'Löschen' : k}">${k === '⌫' ? ICON.left : k}</button>` : '<span></span>').join('')}</div>
@@ -559,7 +559,7 @@ function viewLock() {
   return `
     <div class="lock">
       <img class="lock-logo" src="icon-512.png" alt="">
-      <h1>KeimBook</h1>
+      <h1>TeachersBook</h1>
       <p>Gib deinen persönlichen Lizenzcode ein, um die App freizuschalten.</p>
       <textarea id="lic" placeholder="Lizenzcode hier einfügen" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false"></textarea>
       <p class="err">${esc(lockMsg)}</p>
@@ -576,7 +576,7 @@ function setHeader({ title = '', back = null, backLabel = '', act = null } = {})
   if (back) { b.href = back; $('#backlabel').textContent = backLabel; }
   a.hidden = !act;
   if (act) { a.innerHTML = ICON[act.icon]; a.dataset.a = act.a; a.setAttribute('aria-label', act.label || ''); }
-  document.title = title && title !== 'Klassen' ? title + ' – KeimBook' : 'KeimBook';
+  document.title = title && title !== 'Klassen' ? title + ' – TeachersBook' : 'TeachersBook';
 }
 const main = $('#main');
 const onScroll = () => $('#top').classList.toggle('scrolled', main.scrollTop > 44);
@@ -1442,8 +1442,8 @@ function fwPDF(c, s, o) {
   const sig = (x, label) => { k.line([[x, y], [x + 210, y]], COL.ink3, .6); k.text(x, y + 13, label, { size: 8.5, color: COL.ink2 }); };
   sig(M, `Lehrkraft (${o.teacher})`); sig(W - M - 210, 'Erziehungsberechtigte:r – zur Kenntnis genommen');
   y += 40;
-  k.text(M, H - M - 22, 'Vorlage aus KeimBook. Bitte mit den Vorgaben deiner Schule abgleichen (Form, Fristen, Zustellung).', { size: 7.5, color: COL.ink3 });
-  return k.build(`Frühwarnung ${s.name}`, `KeimBook · ${c.name} · Frühwarnung`);
+  k.text(M, H - M - 22, 'Vorlage aus TeachersBook. Bitte mit den Vorgaben deiner Schule abgleichen (Form, Fristen, Zustellung).', { size: 7.5, color: COL.ink3 });
+  return k.build(`Frühwarnung ${s.name}`, `TeachersBook · ${c.name} · Frühwarnung`);
 }
 
 // Fehltage je Kind (mit Datum und Anmerkung) und Stundenthemen der Klasse im Zeitraum
@@ -1488,7 +1488,7 @@ function absPDF(c) {
       y += h;
     });
   }
-  return k.build(`Fehlzeiten ${c.name}`, `KeimBook · ${c.name} · Fehlzeiten`);
+  return k.build(`Fehlzeiten ${c.name}`, `TeachersBook · ${c.name} · Fehlzeiten`);
 }
 function absXLSX(c) {
   const rows = absData(c);
@@ -1574,7 +1574,7 @@ function znPDF(c, kind) {
   const dist = [1, 2, 3, 4, 5].map(g => rows.filter(r => r.zn === String(g)).length);
   y += 14; if (y > H - M - 30) { k.page(); y = M + 6; }
   k.text(M, y, `Verteilung: ${dist.map((n, i) => `${i + 1}: ${n}`).join('   ')}   ·   festgelegt: ${rows.filter(r => r.zn).length} von ${rows.length}`, { size: 9, color: COL.ink2 });
-  return k.build(`Zeugnisnoten ${c.name}`, `KeimBook · ${c.name} · Zeugnisnoten`);
+  return k.build(`Zeugnisnoten ${c.name}`, `TeachersBook · ${c.name} · Zeugnisnoten`);
 }
 function znXLSX(c, kind) {
   const rows = znRows(c, kind);
@@ -1668,7 +1668,7 @@ function testPDF(c, t, names) {
   } else {
     k.text(M, y, 'Ohne Namen – zur Weitergabe z. B. an die Schulleitung geeignet.', { size: 8, color: COL.ink3 });
   }
-  return k.build(`${names ? 'Ergebnisliste' : 'Notenspiegel'} ${t.title} ${c.name}`, `KeimBook · ${c.name} · ${t.title}`);
+  return k.build(`${names ? 'Ergebnisliste' : 'Notenspiegel'} ${t.title} ${c.name}`, `TeachersBook · ${c.name} · ${t.title}`);
 }
 function viewTests(c) {
   setHeader({ title: 'Schularbeiten', back: '#/k/' + c.id, backLabel: c.name });
@@ -1806,7 +1806,7 @@ function viewPlan() {
     <div class="section">Beim Öffnen</div>
     <div class="card"><div class="lrow static"><span class="licon">${ICON.spark}</span><span class="grow">Direkt zur aktuellen Stunde</span>
       <div class="mini-seg compact"><button class="${on ? 'on' : ''}" data-a="planOpen" data-v="1" aria-pressed="${on}">Ein</button><button class="${on ? '' : 'on'}" data-a="planOpen" data-v="0" aria-pressed="${!on}">Aus</button></div></div></div>
-    <p class="fine">Öffnest du KeimBook während einer Stunde (oder bis 10 Minuten davor), springt die App direkt in diese Klasse – Reiter Eintragen, heutiges Datum. Auf der Startseite steht oben immer die aktuelle Stunde.</p>
+    <p class="fine">Öffnest du TeachersBook während einer Stunde (oder bis 10 Minuten davor), springt die App direkt in diese Klasse – Reiter Eintragen, heutiges Datum. Auf der Startseite steht oben immer die aktuelle Stunde.</p>
     <div class="section">A/B-Wochen</div>
     <div class="card"><div class="lrow static"><span class="licon">${ICON.list}</span><span class="grow">Wechselnde Wochen</span>
       <div class="mini-seg compact"><button class="${ab ? 'on' : ''}" data-a="abSet" data-v="1" aria-pressed="${ab}">Ein</button><button class="${ab ? '' : 'on'}" data-a="abSet" data-v="0" aria-pressed="${!ab}">Aus</button></div></div>
@@ -1823,7 +1823,11 @@ function viewPlan() {
 }
 
 /* ---------- Was ist neu? (einmal nach einem Update) ---------- */
+// Versionszählung neu ab 0.1 (Pilotphase, 1.0 = offizieller Start). Ältere Neuerungen (alte Zählung 5.x) stehen in NEWS_OLD.
 const NEWS = [
+  ['0.1', ['KeimBook heißt jetzt TeachersBook – mit neuem Symbol. Deine Daten, Lizenz und die Adresse bleiben gleich.', 'Neue Versionszählung: 0.x während der Pilotphase, 1.0 beim offiziellen Start.']]
+];
+const NEWS_OLD = [
   ['5.12', ['Sport: getrennte Notenschlüssel für Messwerte, z. B. für Burschen und Mädchen – unter Bewertung & Gewichtung → Messwert antippen → „Getrennt nach Gruppe“.']],
   ['5.11', ['Ruhigere Auswahlmenüs: kein grüner Rahmen mehr um die erste Zeile.']],
   ['5.10', ['„Auf andere Klassen übernehmen“ (Bewertung & Gewichtung): Du wählst, was übernommen wird. Eigene Kategorien und Einträge der anderen Klassen bleiben erhalten.']],
@@ -1844,9 +1848,9 @@ async function newsCheck() {
   if (!license || locked || $('#dlg').open) return;
   const p = data.prefs || {};
   // Neu installiert: nichts zeigen (die Einführung erklärt alles). Bestehende Nutzung ohne Vermerk: alles seit 5.0.
-  const seen = p.seenVersion || (data.classes.length ? '5.0' : APP_VERSION);
+  const seen = p.seenVersion && verNum(p.seenVersion) < 1 ? p.seenVersion : (p.seenVersion || data.classes.length ? '0.0' : APP_VERSION);
   const list = newsSince(seen);
-  if (list.length) await modal({ title: 'Neu in KeimBook', text: `Seit deiner letzten Version (${seen}) ist dazugekommen:`, body: newsHTML(list), ok: 'Alles klar', cancel: 'Schließen' });
+  if (list.length) await modal({ title: 'Neu in TeachersBook', text: seen === '0.0' ? 'Das ist neu:' : `Seit deiner letzten Version (${seen}) ist dazugekommen:`, body: newsHTML(list), ok: 'Alles klar', cancel: 'Schließen' });
   if (p.seenVersion !== APP_VERSION) { data.prefs = Object.assign({}, data.prefs, { seenVersion: APP_VERSION }); await save(); }
 }
 // Rückmeldung per Mail – nur App-Version und Gerät, keine Schülerdaten
@@ -1854,16 +1858,16 @@ const FEEDBACK_TO = 'marcus.marzinger@keimgasse.at';
 function feedbackMail() {
   const ua = navigator.userAgent, dev = /iPad/.test(ua) ? 'iPad' : /iPhone/.test(ua) ? 'iPhone' : /Android/.test(ua) ? 'Android' : /Mac/.test(ua) ? 'Mac' : /Windows/.test(ua) ? 'Windows' : 'anderes Gerät';
   const os = (ua.match(/OS (\d+[_.]\d+)/) || ua.match(/Android (\d+(\.\d+)?)/) || [])[1] || '';
-  const body = `\n\n\n––––\nKeimBook ${APP_VERSION} · ${dev}${os ? ' ' + os.replace('_', '.') : ''}${matchMedia('(display-mode: standalone)').matches ? ' · als App installiert' : ' · im Browser'}\n(Bitte keine Namen oder Noten von Schüler:innen in die Mail schreiben.)`;
-  return `mailto:${encodeURIComponent(FEEDBACK_TO).replace('%40', '@')}?subject=${encodeURIComponent('Rückmeldung zu KeimBook ' + APP_VERSION)}&body=${encodeURIComponent(body)}`;
+  const body = `\n\n\n––––\nTeachersBook ${APP_VERSION} · ${dev}${os ? ' ' + os.replace('_', '.') : ''}${matchMedia('(display-mode: standalone)').matches ? ' · als App installiert' : ' · im Browser'}\n(Bitte keine Namen oder Noten von Schüler:innen in die Mail schreiben.)`;
+  return `mailto:${encodeURIComponent(FEEDBACK_TO).replace('%40', '@')}?subject=${encodeURIComponent('Rückmeldung zu TeachersBook ' + APP_VERSION)}&body=${encodeURIComponent(body)}`;
 }
 
 /* ---------- Hilfe: häufige Fragen (offline, durchsuchbar) ---------- */
 const HELP = [
   ['Erste Schritte', [
-    ['Wie installiere ich KeimBook am iPhone oder iPad?', 'In <b>Safari</b> die Adresse der App öffnen → unten das <b>Teilen-Symbol</b> → <b>„Zum Home-Bildschirm“</b>. Öffne KeimBook danach immer über das Symbol am Home-Bildschirm – nur dort liegen deine Daten.'],
-    ['Wie installiere ich KeimBook unter Android?', 'In <b>Chrome</b> die Adresse öffnen → oben rechts die <b>drei Punkte</b> → <b>„App installieren“</b> (oder „Zum Startbildschirm hinzufügen“).'],
-    ['Wie hole ich die Schülerliste aus WebUntis?', 'Am Computer in WebUntis: links <b>Unterricht</b> → bei der Klasse das <b>Symbol ganz rechts</b> → <b>„Schüler*innen im Unterricht“</b> → kleines <b>CSV-Symbol</b> → oben rechts den grauen Balken <b>„LessonStudentList…“</b> anklicken und speichern – am besten in iCloud Drive oder Google Drive. Dann in KeimBook: <b>„Neue Klasse“ → „Schülerliste importieren“</b>.'],
+    ['Wie installiere ich TeachersBook am iPhone oder iPad?', 'In <b>Safari</b> die Adresse der App öffnen → unten das <b>Teilen-Symbol</b> → <b>„Zum Home-Bildschirm“</b>. Öffne TeachersBook danach immer über das Symbol am Home-Bildschirm – nur dort liegen deine Daten.'],
+    ['Wie installiere ich TeachersBook unter Android?', 'In <b>Chrome</b> die Adresse öffnen → oben rechts die <b>drei Punkte</b> → <b>„App installieren“</b> (oder „Zum Startbildschirm hinzufügen“).'],
+    ['Wie hole ich die Schülerliste aus WebUntis?', 'Am Computer in WebUntis: links <b>Unterricht</b> → bei der Klasse das <b>Symbol ganz rechts</b> → <b>„Schüler*innen im Unterricht“</b> → kleines <b>CSV-Symbol</b> → oben rechts den grauen Balken <b>„LessonStudentList…“</b> anklicken und speichern – am besten in iCloud Drive oder Google Drive. Dann in TeachersBook: <b>„Neue Klasse“ → „Schülerliste importieren“</b>.'],
     ['Kann ich eine Klasse auch ohne WebUntis anlegen?', 'Ja: <b>„Neue Klasse“ → „Leere Klasse anlegen“</b>. Danach in der Klasse <b>••• → „Schüler:innen hinzufügen“</b> und die Namen eintippen – einen pro Zeile. Excel- und CSV-Listen gehen auch.'],
     ['Wie stelle ich eine Gruppe aus mehreren Klassen zusammen?', 'Am schnellsten: Die Schülerliste der Gruppe aus WebUntis importieren. Stehen darin mehrere Klassen (z. B. 7a, 7b, 7c), fragt die App: <b>„Eine Gruppe daraus machen“</b> – Namen eingeben, z. B. <b>„Biologie Labor“</b>. Neben jedem Namen steht weiterhin die Klasse. Oder: <b>„Neue Klasse“ → „Gruppe aus mehreren Klassen“</b> und Kinder aus vorhandenen Klassen anhaken.']]],
   ['Im Unterricht', [
@@ -1893,18 +1897,18 @@ const HELP = [
   ['Daten und Sicherheit', [
     ['Wo sind meine Daten gespeichert?', 'Nur <b>auf diesem Gerät</b>, im Speicher der App. Es gibt keine Cloud und kein Konto – deshalb ist die <b>Sicherung</b> so wichtig.'],
     ['Wie sichere ich meine Daten?', '<b>Zahnrad → „Sicherung exportieren“</b>. Die Datei ist mit deinem Sicherungspasswort verschlüsselt. Die App erinnert dich zweimal pro Woche.'],
-    ['Wie nehme ich meine Daten auf ein neues Gerät mit?', 'Am alten Gerät eine Sicherung exportieren (z. B. in iCloud Drive). Am neuen Gerät KeimBook installieren und freischalten → <b>Zahnrad → „Sicherung importieren“</b> → Sicherungspasswort → <b>„Alles ersetzen“</b>.'],
+    ['Wie nehme ich meine Daten auf ein neues Gerät mit?', 'Am alten Gerät eine Sicherung exportieren (z. B. in iCloud Drive). Am neuen Gerät TeachersBook installieren und freischalten → <b>Zahnrad → „Sicherung importieren“</b> → Sicherungspasswort → <b>„Alles ersetzen“</b>.'],
     ['Ich habe meinen PIN vergessen.', 'Ohne PIN lassen sich die Daten nicht öffnen – das ist der Schutz. Über <b>„PIN vergessen?“</b> wird alles gelöscht; danach importierst du deine letzte Sicherung.'],
     ['Ich habe mein Sicherungspasswort vergessen.', 'Ältere Sicherungen lassen sich dann nicht mehr öffnen. Deine Daten in der App sind nicht betroffen: Lege unter Zahnrad <b>„Passwort ändern“</b> ein neues fest und exportiere sofort eine neue Sicherung.'],
-    ['Kann ich KeimBook auf Handy und iPad gleichzeitig nutzen?', 'Ja. Zum Abgleichen: Zahnrad → <b>„Mit anderem Gerät abgleichen“</b> → am ersten Gerät <b>„Abgleich-Datei erstellen“</b>, die Datei per AirDrop, iCloud Drive oder Mail ans andere Gerät schicken und dort <b>„Abgleich-Datei einlesen“</b>. Danach bietet die App an, eine Antwort-Datei zurückzuschicken – dann sind beide gleich. Neuere Einträge gewinnen, Gelöschtes wird auf beiden Geräten gelöscht. Am einfachsten mit demselben Sicherungspasswort auf beiden Geräten.'],
-    ['Darf ich Safari-Verlauf und Websitedaten löschen?', 'Vorsicht: Das Löschen von Websitedaten (oder das Entfernen der App) kann auch die Daten von KeimBook löschen. Mach vorher immer eine Sicherung.']]],
+    ['Kann ich TeachersBook auf Handy und iPad gleichzeitig nutzen?', 'Ja. Zum Abgleichen: Zahnrad → <b>„Mit anderem Gerät abgleichen“</b> → am ersten Gerät <b>„Abgleich-Datei erstellen“</b>, die Datei per AirDrop, iCloud Drive oder Mail ans andere Gerät schicken und dort <b>„Abgleich-Datei einlesen“</b>. Danach bietet die App an, eine Antwort-Datei zurückzuschicken – dann sind beide gleich. Neuere Einträge gewinnen, Gelöschtes wird auf beiden Geräten gelöscht. Am einfachsten mit demselben Sicherungspasswort auf beiden Geräten.'],
+    ['Darf ich Safari-Verlauf und Websitedaten löschen?', 'Vorsicht: Das Löschen von Websitedaten (oder das Entfernen der App) kann auch die Daten von TeachersBook löschen. Mach vorher immer eine Sicherung.']]],
   ['Schuljahr und Löschfristen', [
     ['Wie starte ich ins neue Schuljahr?', 'Ab 1. September erscheint auf der Startseite <b>„Neues Schuljahr“</b> (auch unter Zahnrad → „Altes Schuljahr abschließen“). Archiv sichern, Klassen übernehmen (3B → 4B), alte Einträge löschen.'],
     ['Was ist die Aufbewahrungsfrist?', 'Wie lange Daten nach Schuljahresende aufbewahrt werden – <b>Vorgabe deiner Schule</b>. Einstellen unter <b>Zahnrad → Datenschutz → Frist</b>. Danach erinnert dich die App, das Archiv zu löschen.']]],
   ['Probleme', [
     ['Die App zeigt noch eine alte Version.', 'App ganz schließen (aus der App-Übersicht wischen) und <b>zweimal</b> neu öffnen. Die Versionsnummer steht ganz unten in den Einstellungen.'],
     ['Meine Lizenz ist abgelaufen.', 'Die App fragt nach einem neuen Lizenzcode. Deine Einträge bleiben auf dem Gerät – nach dem Freischalten ist alles wieder da.'],
-    ['An wen wende ich mich bei weiteren Fragen?', 'Weiter unten auf dieser Seite: <b>„Rückmeldung senden“</b> – öffnet eine Mail an das KeimBook-Team. Ausführlich ist alles im <b>Benutzerhandbuch</b> beschrieben.']]]
+    ['An wen wende ich mich bei weiteren Fragen?', 'Weiter unten auf dieser Seite: <b>„Rückmeldung senden“</b> – öffnet eine Mail an das TeachersBook-Team. Ausführlich ist alles im <b>Benutzerhandbuch</b> beschrieben.']]]
 ];
 const helpText = h => h.replace(/<[^>]+>/g, '').toLowerCase();
 // Zusätzliche Suchwörter, die so nicht im Text stehen
@@ -1935,7 +1939,7 @@ function viewHelp() {
     <div class="card mt"><a class="lrow" href="${feedbackMail()}"><span class="licon">${ICON.speech}</span><span class="grow">Rückmeldung senden<span class="lsub">Fehler gefunden, Idee, Frage? Öffnet eine Mail – ohne Schülerdaten.</span></span>${ICON.chev}</a>
       <button class="lrow" data-a="newsAll"><span class="licon">${ICON.star}</span><span class="grow">Was ist neu?</span>${ICON.chev}</button>
       <button class="lrow" data-a="introAgain"><span class="licon">${ICON.spark}</span><span class="grow">Einführung nochmal ansehen</span>${ICON.chev}</button></div>
-    <p class="fine center">KeimBook · Version ${APP_VERSION}</p>`;
+    <p class="fine center">TeachersBook · Version ${APP_VERSION}</p>`;
 }
 document.addEventListener('input', e => {
   if (e.target.id !== 'helpq') return;
@@ -2000,7 +2004,7 @@ function viewSettings() {
 
     <div class="section">Daten</div>
     <div class="card"><button class="lrow danger" data-a="wipe"><span class="licon">${ICON.trash}</span><span class="grow">Alle Daten löschen</span></button></div>
-    <p class="fine center">KeimBook · Version ${APP_VERSION}</p>`;
+    <p class="fine center">TeachersBook · Version ${APP_VERSION}</p>`;
 }
 
 // Verschlüsselte Sicherung aller Daten in eine Datei. true = gespeichert bzw. geteilt.
@@ -2047,7 +2051,7 @@ async function archiveCheck() {
   const ok = await modal({
     title: 'Archiv löschen', ok: 'Erledigt – gelöscht', cancel: 'Später',
     text: `Die Aufbewahrungsfrist für das Schuljahr ${a.from === a.y ? yl(a.y) : yl(a.from) + ' bis ' + yl(a.y)} ist abgelaufen (${plural(retainYears(), 'Jahr', 'Jahre')} nach Schuljahresende).`,
-    body: `<p class="stext">Lösche jetzt die Datei <b>„${esc(a.f)}“</b> aus iCloud Drive bzw. der Dateien-App – und auch ältere Sicherungen („KeimBook-Sicherung_…“) aus dieser Zeit. Dateien außerhalb der App kann KeimBook nicht selbst löschen.</p>`
+    body: `<p class="stext">Lösche jetzt die Datei <b>„${esc(a.f)}“</b> aus iCloud Drive bzw. der Dateien-App – und auch ältere Sicherungen („TeachersBook-Sicherung_…“ bzw. „KeimBook-Sicherung_…“) aus dieser Zeit. Dateien außerhalb der App kann TeachersBook nicht selbst löschen.</p>`
   });
   if (ok) { a.done = today(); toast('Danke – Archiv als gelöscht vermerkt'); }
   else data.prefs = Object.assign({}, data.prefs, { archSnooze: shiftDay(today(), 7) });
@@ -2095,10 +2099,10 @@ async function yearWizard() {
       <li><b>Alte Daten löschen</b> – ${esc(plural(o.entries, 'Eintrag', 'Einträge'))}${o.talks ? `, ${esc(plural(o.talks, 'Gespräch bzw. Frühwarnung', 'Gespräche bzw. Frühwarnungen'))}` : ''}${o.days ? ` und ${esc(plural(o.days, 'Stundenthema', 'Stundenthemen'))}` : ''} vor dem 1. September werden vom Gerät entfernt.</li></ol>`
   })) return;
   // 2 · Archiv
-  const arch = await modal({ title: 'Archiv sichern', text: `Die Datei „KeimBook-Archiv_${fileLabel}.json“ ist mit deinem Sicherungspasswort verschlüsselt. Aufbewahrungsfrist: ${plural(retainYears(), 'Jahr', 'Jahre')} nach Schuljahresende – danach erinnert dich die App ans Löschen.`, ok: 'Archiv sichern' });
+  const arch = await modal({ title: 'Archiv sichern', text: `Die Datei „TeachersBook-Archiv_${fileLabel}.json“ ist mit deinem Sicherungspasswort verschlüsselt. Aufbewahrungsfrist: ${plural(retainYears(), 'Jahr', 'Jahre')} nach Schuljahresende – danach erinnert dich die App ans Löschen.`, ok: 'Archiv sichern' });
   if (!arch) return;
-  if (!await writeBackup(`KeimBook-Archiv_${fileLabel}.json`)) return toast('Abgebrochen – ohne Archiv wird nichts gelöscht');
-  noteArchive(`KeimBook-Archiv_${fileLabel}.json`, o.first, o.last); await save();
+  if (!await writeBackup(`TeachersBook-Archiv_${fileLabel}.json`)) return toast('Abgebrochen – ohne Archiv wird nichts gelöscht');
+  noteArchive(`TeachersBook-Archiv_${fileLabel}.json`, o.first, o.last); await save();
   // 3 · Klassen
   const cls = [...data.classes].sort(byName);
   const plan = cls.length ? await modal({
@@ -2157,7 +2161,7 @@ const backupWhen = () => backup.last ? relDay(isoOf(backup.last)) : 'noch nie';
 async function introCheck(force) {
   if (!license || locked || $('#dlg').open || (!force && (data.classes.length || (data.prefs && data.prefs.introDone)))) return;
   const pages = [
-    ['Willkommen bei KeimBook', 'Dein Klassenbuch für Mitarbeit, Wiederholungen, Hausübungen und Anwesenheit – direkt im Unterricht, auch ohne Internet.', 'Weiter'],
+    ['Willkommen bei TeachersBook', 'Dein Klassenbuch für Mitarbeit, Wiederholungen, Hausübungen und Anwesenheit – direkt im Unterricht, auch ohne Internet.', 'Weiter'],
     ['1 · Klasse anlegen', 'Tippe auf „Schülerliste importieren“ und wähle die Datei aus WebUntis. Die Klassen werden automatisch angelegt. Oder lege eine Klasse selbst an.', 'Weiter'],
     ['2 · Eintragen', 'Klasse öffnen, oben die Kategorie wählen und je Kind auf den Wert tippen. Vertippt? „Rückgängig“ in der Meldung unten. Im Reiter „Übersicht“ siehst du Noten, Trends und den Notenvorschlag.', 'Weiter'],
     ['3 · Sicher und privat', 'Alle Daten bleiben nur auf diesem Gerät. Schalte unter dem Zahnrad die PIN-Sperre ein – dann ist alles verschlüsselt. Die App erinnert dich zweimal pro Woche an eine Sicherung. Fragen? Unten auf der Startseite findest du die Hilfe.', 'Los geht’s']
@@ -2481,7 +2485,7 @@ function pdfKit() {
       });
       objs[catalog - 1] = `<< /Type /Catalog /Pages ${pagesId} 0 R >>`;
       objs[pagesId - 1] = `<< /Type /Pages /Kids [${kids.map(id => id + ' 0 R').join(' ')}] /Count ${kids.length} >>`;
-      const info = add(`<< /Title ${pdfStr(title)} /Producer (KeimBook) >>`);
+      const info = add(`<< /Title ${pdfStr(title)} /Producer (TeachersBook) >>`);
       let out = '%PDF-1.4\n%\xE2\xE3\xCF\xD3\n';
       const offs = [];
       objs.forEach((o, i) => { offs.push(out.length); out += `${i + 1} 0 obj\n${o}\nendobj\n`; });
@@ -2541,7 +2545,7 @@ function classTrendsPDF(c, rows) {
   }
   const n = rows.length, up = rows.filter(r => r.tr.dir === 'up').length, down = rows.filter(r => r.tr.dir === 'down').length, risk = rows.filter(r => isRisk(r.st)).length;
   k.text(M, Math.min(y + 24, H - M - 30), `${n} Schüler:innen · ${up} verbessern sich · ${down} verschlechtern sich · ${risk} mit Gesamtnote über 4`, { size: 9, color: COL.ink2 });
-  return k.build('Trends ' + c.name, `KeimBook · ${c.name}`);
+  return k.build('Trends ' + c.name, `TeachersBook · ${c.name}`);
 }
 
 /* ---------- Export einer einzelnen Kategorie ---------- */
@@ -2689,7 +2693,7 @@ function catPDF(c, keys) {
   if (multi) catOverview(kit, c, keys);
   keys.forEach((k, i) => { if (multi) kit.page(); catSection(kit, c, k, multi ? `KATEGORIE ${i + 1} VON ${keys.length}` : 'KATEGORIE'); });
   const name = multi ? 'Kategorien' : typeOf(c, keys[0]).label;
-  return kit.build(`${name} ${c.name}`, `KeimBook · ${c.name} · ${name}`);
+  return kit.build(`${name} ${c.name}`, `TeachersBook · ${c.name} · ${name}`);
 }
 
 function studentTrendPDF(c, s) {
@@ -2794,7 +2798,7 @@ function studentTrendPDF(c, s) {
       k.line([[M, y + h], [W - M, y + h]], COL.line, .5); y += h;
     });
   }
-  return k.build(`Trend ${s.name}`, `KeimBook · ${c.name} · ${s.name}`);
+  return k.build(`Trend ${s.name}`, `TeachersBook · ${c.name} · ${s.name}`);
 }
 
 function parseCSV(text) {
@@ -3093,7 +3097,7 @@ const actions = {
     data.plan = []; await save(); render();
   },
   async introAgain() { await introCheck(true); },
-  newsAll() { modal({ title: 'Was ist neu?', body: newsHTML(NEWS), ok: 'Schließen', cancel: 'Zurück' }); },
+  newsAll() { modal({ title: 'Was ist neu?', body: newsHTML(NEWS) + `<div class="nv">Frühere Versionen (als KeimBook)</div>` + newsHTML(NEWS_OLD.map(([v, l]) => [v + ' (alt)', l])), ok: 'Schließen', cancel: 'Zurück' }); },
   setPeriod(d) { ui.period = d.v; saveUi(); render(); },
   setLayout(d) { ui.layout = d.v; ui.seatEdit = false; ui.seatSel = null; saveUi(); render(); },
   seatEditToggle() { ui.seatEdit = !ui.seatEdit; ui.seatSel = null; const c = currentClass(); if (c && !ui.seatEdit) save(); render(); },
@@ -3794,7 +3798,7 @@ const actions = {
         e.w ? fmtW(e.w) : '1', kindOf(c, e.t) === 'text' ? '' : noteFull(c, e)]));
     saveFile(`Einträge_${safeName(c.name)}_${periodFile()}.csv`, 'text/csv', toCSV(rows));
   },
-  async exportBackup() { await writeBackup(`KeimBook-Sicherung_${today()}.json`); },
+  async exportBackup() { await writeBackup(`TeachersBook-Sicherung_${today()}.json`); },
   async syncMenu() {
     const k = await modal({ title: 'Zwei Geräte abgleichen', text: 'Z. B. Handy und iPad – ohne Cloud. Ein Gerät erstellt eine verschlüsselte Abgleich-Datei, das andere liest sie ein. Neuere Einträge gewinnen, Gelöschtes wird auch am anderen Gerät gelöscht. Tipp: auf beiden Geräten dasselbe Sicherungspasswort verwenden.',
       options: [['out', 'Abgleich-Datei erstellen (Schritt 1)'], ['in', 'Abgleich-Datei einlesen (Schritt 2)']], cancel: 'Schließen' });
@@ -3802,7 +3806,7 @@ const actions = {
     if (k === 'in') return actions.syncIn();
   },
   async syncOut() {
-    if (await writeBackup(`KeimBook-Abgleich_${today()}_${hm(new Date()).replace(':', '')}.json`, { abgleich: true }))
+    if (await writeBackup(`TeachersBook-Abgleich_${today()}_${hm(new Date()).replace(':', '')}.json`, { abgleich: true }))
       modal({ title: 'Abgleich-Datei erstellt', text: 'Bring die Datei aufs andere Gerät (AirDrop, iCloud Drive, Mail an dich selbst …) und lies sie dort ein: Zahnrad → „Mit anderem Gerät abgleichen“ → „Abgleich-Datei einlesen“.', ok: 'Verstanden', cancel: 'Schließen' });
   },
   async syncIn() {

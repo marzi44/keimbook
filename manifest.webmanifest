@@ -1,6 +1,6 @@
 {
-  "name": "KeimBook",
-  "short_name": "KeimBook",
+  "name": "TeachersBook",
+  "short_name": "TeachersBook",
   "description": "Mitarbeit, Wiederholungen und Hausübungen – offline auf Handy und Tablet.",
   "lang": "de",
   "start_url": "./",

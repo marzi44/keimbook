@@ -1,4 +1,4 @@
-# KeimBook
+# TeachersBook
 
 Digitales Klassenbuch für Lehrkräfte – Mitarbeit, Wiederholungen, Hausübungen, Anwesenheit und Verhalten im Unterricht festhalten.
 
